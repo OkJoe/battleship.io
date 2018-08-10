@@ -1,15 +1,44 @@
-<canvas id="ctx" width="500" height="500" style="border:1px solid #000000;"></canvas>
+<div id="signUpDiv">
+	Nickname: <input id="signUpNickname" type="text"></input>
+	<button id="signUpButton">Sign Up</button>
+</div>
+
+<div id="gameDiv" style="display:none;">
+	<canvas id="ctx" width="500" height="500" style="border:1px solid #000000;"></canvas>
+</div>
 
 <script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
 
 <script>
-	var ctx = document.getElementById("ctx").getContext("2d"); 
-	ctx.font = '30px Arial'; 
-
 	var socket = io(); 
 	
-	socket.on('newPos', function(data){
-		ctx.clearRect(0, 0, 500, 500); 
-		ctx.fillText('P', data.x, data.y); 
+	//Sign up 
+	var signUpDiv = document.getElementById("signUpDiv"); 
+	var signUpNickname = document.getElementById("signUpNickname"); 
+	var signUpButton = document.getElementById("signUpButton"); 
+	var gameDiv = document.getElementById("gameDiv"); 
+	
+	signUpButton.onclick = function(){
+		socket.emit('signUp', {nickname:signUpNickname.value}); 
+	}; 
+	
+	socket.on('signUpResponse', function(data){
+		if (data.success){
+			signUpDiv.style.display = 'none'; 
+			gameDiv.style.display = 'inline-block'; 
+		} else {
+			alert(data.msg); 
+		}
+	}); 
+	
+	//Game 
+	var ctx = document.getElementById("ctx").getContext("2d"); 
+	ctx.font = '20px Arial'; 
+	
+	socket.on('newPosition', function(data){
+		ctx.clearRect(0, 0, data.mapInfo.size.x, data.mapInfo.size.y); 
+		for(var i=0; i<data.objList.length; i++) {
+			ctx.fillText(data.objList[i].name, data.objList[i].x, data.objList[i].y); 
+		}
 	}); 
 </script>
