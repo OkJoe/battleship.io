@@ -1,10 +1,10 @@
 <div id="signUpDiv">
-	Nickname: <input id="signUpNickname" type="text"></input>
+	name: <input id="signUpname" type="text"></input>
 	<button id="signUpButton">Sign Up</button>
 </div>
 
 <div id="gameDiv" style="display:none;">
-	<canvas id="ctx" width="500" height="500" style="border:1px solid #000000;"></canvas>
+	<canvas id="ctx" width="800" height="500" style="border:1px solid #000000;"></canvas>
 </div>
 
 <script src="https://cdn.socket.io/socket.io-1.4.5.js"></script>
@@ -14,16 +14,42 @@
 	
 	//Sign up 
 	var signUpDiv = document.getElementById("signUpDiv"); 
-	var signUpNickname = document.getElementById("signUpNickname"); 
+	var signUpname = document.getElementById("signUpname"); 
 	var signUpButton = document.getElementById("signUpButton"); 
 	var gameDiv = document.getElementById("gameDiv"); 
 	
 	signUpButton.onclick = function(){
-		socket.emit('signUp', {nickname:signUpNickname.value}); 
+		socket.emit('signUp', {name:signUpname.value}); 
 	}; 
+	
+	//Canvas setting 
+	
+	boardSize = {width:800, height:500}; 
+	canvasPosition = {x:200, y:0}; 
+	canvasSize = {x:500, y:500}; 
+	var displayRange = {
+		x:{lower:0, upper:10000, size:10000, scale:1/20}, 
+		y:{lower:0, upper:10000, size:10000, scale:1/20}, 
+		reset: function(center, size){
+			this.x.size = size.x; 
+			this.x.lower = center.x - this.x.size/2; 
+			this.x.upper = center.x + this.x.size/2; 
+			this.x.scale = canvasSize.x/this.x.size; 
+			this.y.size = size.y; 
+			this.y.lower = center.y - this.y.size/2; 
+			this.y.upper = center.y + this.y.size/2; 
+			this.y.scale = canvasSize.y/this.y.size; 
+		}
+	}; 
+	var mapInfo = {size:{x:10000, y:10000}}; 
+	
+	//Still signing up 
 	
 	socket.on('signUpResponse', function(data){
 		if (data.success){
+			mapInfo = data.mapInfo; 
+			displayRange.reset({x:mapInfo.size.x/2, y:mapInfo.size.y/2}, {x:mapInfo.size.x, y:mapInfo.size.y}); 
+			
 			signUpDiv.style.display = 'none'; 
 			gameDiv.style.display = 'inline-block'; 
 		} else {
@@ -33,12 +59,62 @@
 	
 	//Game 
 	var ctx = document.getElementById("ctx").getContext("2d"); 
-	ctx.font = '20px Arial'; 
+	ctx.font = '10px Arial'; 
+	var convertToCanvasCoord = {
+		x: function(x){
+			return canvasPosition.x + (x - displayRange.x.lower)*displayRange.x.scale; 
+		}, 
+		y: function(y){
+			return canvasPosition.y + (displayRange.y.upper - y)*displayRange.y.scale; 
+		} 
+	}
+	
+	var drawShip = function(x, y, bearing){
+		ctx.lineWidth=4;
+		ctx.beginPath();
+		ctx.moveTo(convertToCanvasCoord.x(x),convertToCanvasCoord.y(y)); 
+		ctx.lineTo(convertToCanvasCoord.x(x)-4*Math.cos(-bearing),convertToCanvasCoord.y(y)-4*Math.sin(-bearing));
+		ctx.stroke();
+		ctx.lineWidth=2;
+		ctx.beginPath();
+		ctx.moveTo(convertToCanvasCoord.x(x),convertToCanvasCoord.y(y)); 
+		ctx.lineTo(convertToCanvasCoord.x(x)+4*Math.cos(-bearing),convertToCanvasCoord.y(y)+4*Math.sin(-bearing));
+		ctx.stroke();
+	}; 
 	
 	socket.on('newPosition', function(data){
-		ctx.clearRect(0, 0, data.mapInfo.size.x, data.mapInfo.size.y); 
+		ctx.clearRect(0, 0, boardSize.width, boardSize.height); 
+		ctx.fillStyle = '#AED6F1';
+		ctx.fillRect(canvasPosition.x, canvasPosition.y, canvasSize.x, canvasSize.y); 
+		
 		for(var i=0; i<data.objList.length; i++) {
-			ctx.fillText(data.objList[i].name, data.objList[i].x, data.objList[i].y); 
+			ctx.fillStyle = 'black';
+			ctx.fillText(data.objList[i].name, convertToCanvasCoord.x(data.objList[i].x), convertToCanvasCoord.y(data.objList[i].y)-10); 
+			drawShip(data.objList[i].x, data.objList[i].y, data.objList[i].bearing); 
 		}
 	}); 
+	
+	document.onkeydown = function(event){
+		if (event.keyCode === 65) {
+			socket.emit('keyPress', {inputId:'Left', state:true}); 
+		} else if (event.keyCode === 68) {
+			socket.emit('keyPress', {inputId:'Right', state:true}); 
+		} else if (event.keyCode === 87) {
+			socket.emit('keyPress', {inputId:'Acc', state:true}); 
+		} else if (event.keyCode === 83) {
+			socket.emit('keyPress', {inputId:'Reverse', state:true}); 
+		}
+	}; 
+	
+	document.onkeyup = function(event){
+		if (event.keyCode === 65) {
+			socket.emit('keyPress', {inputId:'Left', state:false}); 
+		} else if (event.keyCode === 68) {
+			socket.emit('keyPress', {inputId:'Right', state:false}); 
+		} else if (event.keyCode === 87) {
+			socket.emit('keyPress', {inputId:'Acc', state:false}); 
+		} else if (event.keyCode === 83) {
+			socket.emit('keyPress', {inputId:'Reverse', state:false}); 
+		}
+	}; 
 </script>
