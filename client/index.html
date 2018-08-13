@@ -82,15 +82,15 @@
 		ctx.stroke();
 	}; 
 	
-	socket.on('newPosition', function(data){
+	socket.on('updateFrame', function(data){
 		ctx.clearRect(0, 0, boardSize.width, boardSize.height); 
 		ctx.fillStyle = '#AED6F1';
 		ctx.fillRect(canvasPosition.x, canvasPosition.y, canvasSize.x, canvasSize.y); 
 		
-		for(var i=0; i<data.objList.length; i++) {
+		for(var i=0; i<data.detectedShipInfoList.length; i++) {
 			ctx.fillStyle = 'black';
-			ctx.fillText(data.objList[i].name, convertToCanvasCoord.x(data.objList[i].x), convertToCanvasCoord.y(data.objList[i].y)-10); 
-			drawShip(data.objList[i].x, data.objList[i].y, data.objList[i].bearing); 
+			ctx.fillText(data.detectedShipInfoList[i].name, convertToCanvasCoord.x(data.detectedShipInfoList[i].x), convertToCanvasCoord.y(data.detectedShipInfoList[i].y)-10); 
+			drawShip(data.detectedShipInfoList[i].x, data.detectedShipInfoList[i].y, data.detectedShipInfoList[i].bearing); 
 		}
 	}); 
 	

@@ -25,49 +25,54 @@ var fps = 25;
 
 var mapInfo = {size:{x:10000, y:10000}}; 
 
-var physics = {dccFactor:0.1, directionRecoverFactor:1-Math.pow((1-0.9),1/fps)}; 
+var physics = {directionRecoverFactor:1-Math.pow((1-0.9),1/fps)}; 
 
-var SOCKET_LIST = {}; 
-var SHIP_LIST = {}; 
-
-var Entity = function(){
-	var self = {
-		id: Math.random().toString(), 
-		x:0, 
-		y:0, 
-		direction:0, 
-		speed:0
-	}; 
-	self.updatePosition = function(){
+class Entity {
+	constructor() {
+		this.id = Math.random().toString(); 
+		this.x = 0; 
+		this.y = 0; 
+		this.direction = 0; 
+		this.speed = 0; 
+	}
+	updatePosition() {
 		this.x += this.speed*Math.cos(this.direction)/fps; 
 		this.y += this.speed*Math.sin(this.direction)/fps; 
 		this.x = mod(this.x, mapInfo.size.x); 
 		this.y = mod(this.y, mapInfo.size.y); 
-	}; 
-	return self; 
+	}
+	update() {
+		this.updatePosition(); 
+	}
 }; 
 
 //Ship 
 
-var Ship = function(name){
-	var self = Entity();   
-	self.name = name; 
-	self.x = Math.floor(Math.random()*mapInfo.size.x); 
-	self.y = Math.floor(Math.random()*mapInfo.size.y); 
-	self.bearing = 0; 
-	self.turnCurv = 0; 
-	self.stats = {
-		acc: 500*physics.dccFactor, //max speed * dccFactor
-		rudderShift: 2, 
-		rudderRange: 1/500 //1 / turning radius 
-	}; 
-	self.control = {
-		pressingLeft: false, 
-		pressingRight: false, 
-		pressingAcc: false, 
-		pressingReverse: false
-	};
-	self.updateTurnCurv = function(){
+class Ship extends Entity {
+	constructor(socket) {
+		super(); 
+		this.name = socket.name; 
+		this.socket = socket; 
+		this.x = Math.floor(Math.random()*mapInfo.size.x); 
+		this.y = Math.floor(Math.random()*mapInfo.size.y); 
+		this.bearing = Math.random()*2*Math.PI; 
+		this.direction = this.bearing; 
+		this.turnCurv = 0; 
+		this.stats = {
+			decFactor: 0.1, //the amount of max speed recovered each second without consideration of deceleration 
+			rudderShift: 2, 
+			rudderRange: 1/500 //1 / turning radius 
+		}; 
+		this.stats.acc = 500*this.stats.decFactor; //max speed * deceleration factor 
+		this.control = {
+			pressingLeft: false, 
+			pressingRight: false, 
+			pressingAcc: false, 
+			pressingReverse: false
+		};
+		Ship.list[this.name] = this; 
+	}
+	updateTurnCurv() {
 		if (this.control.pressingLeft){
 			if (!this.control.pressingRight)
 			this.turnCurv += this.stats.rudderRange/this.stats.rudderShift/fps; 
@@ -81,23 +86,23 @@ var Ship = function(name){
 			this.turnCurv -= Math.sign(this.turnCurv)*this.stats.rudderRange/this.stats.rudderShift/fps; 
 			if (this.turnCurv > this.stats.rudderRange) {console.log(this.turnCurv); }
 		}
-	}; 
-	self.updateSpeed = function(){
+	}
+	updateSpeed() {
 		var speedIncrease = 0; 
 		if (this.control.pressingAcc){
 			speedIncrease += this.stats.acc; 
 		} else if (this.speed > 0 || this.control.pressingReverse){
 			speedIncrease -= this.stats.acc/4; 
 		}
-		speedIncrease -= this.speed*physics.dccFactor; 
+		speedIncrease -= this.speed*this.stats.decFactor; 
 		this.speed += speedIncrease/fps; 
 		if (Math.abs(this.speed) < 0.01) {this.speed = 0;}
-	}; 
-	self.updateDirection = function(){
+	} 
+	updateDirection() {
 		this.bearing += this.speed*this.turnCurv/fps; 
 		this.bearing = mod(this.bearing, 2*Math.PI); 
-	}; 
-	self.updateVelocityDirection = function(){
+	}
+	updateVelocityDirection() {
 		if (this.bearing-this.direction>Math.PI) {
 			this.direction += physics.directionRecoverFactor*(this.bearing-2*Math.PI-this.direction); 
 			this.direction = mod(this.direction, 2*Math.PI); 
@@ -107,66 +112,72 @@ var Ship = function(name){
 		} else {
 			this.direction += physics.directionRecoverFactor*(this.bearing-this.direction); 
 		}
-	}; 
-	self.update = function(){
+	} 
+	update() {
 		this.updateTurnCurv(); 
 		this.updateSpeed(); 
 		this.updatePosition(); 
 		this.updateDirection(); 
 		this.updateVelocityDirection(); 
-	}; 
-	return self; 
+	}
+	sendInfoToClient() {
+		var detectedShipInfoList = []; 
+		for(let name in Ship.list){
+			detectedShipInfoList.push({name, x:Ship.list[name].x, y:Ship.list[name].y, bearing:Ship.list[name].bearing}); 
+		}
+		this.socket.emit('updateFrame', {detectedShipInfoList}); 
+	}
+	handleKeyInput(inputId, state) {
+		if ('pressing' + inputId in this.control)
+			this.control['pressing' + inputId] = state; 
+	}
+	static update() {
+		for (let name in Ship.list) {
+			Ship.list[name].update(); 
+		}
+		for (let name in Ship.list) {
+			Ship.list[name].sendInfoToClient(); 
+		}
+	}
+	static addShip(name, socket) {
+		Object.defineProperty(socket, 'name', {value:name}); 
+		new Ship(socket); 
+		console.log('New ship ' + name + ' added'); 
+		socket.emit('signUpResponse', {success:true, mapInfo:mapInfo}); 
+	}
+	static removeShip(name) {
+		delete Ship.list[name]; 
+		console.log('Ship ' + name + ' disconnected and removed'); 
+	}
 }; 
+Ship.list = {}; 
 
 //Connection, handles all packages from and to the client 
 
 var io = require('socket.io')(serv, {}); 
-io.sockets.on('connection', function(socket){
+io.sockets.on('connection', socket => {
 	
 	console.log('New connection'); 
 	
 	//Sign up, check if name exist, add to SOCKET_LIST 
-	socket.on('signUp', function(data){
-		if (data.name in SOCKET_LIST){
+	socket.on('signUp', data => {
+		if (data.name in Ship.list) 
 			socket.emit('signUpResponse', {success:false, msg:'name exists, please try another one. '}); 
-		} else {
-			socket.name = data.name; 
-			SOCKET_LIST[socket.name] = socket; 
-			console.log('New player ' + SOCKET_LIST[socket.name].name + ' added'); 
-			
-			var ship = Ship(socket.name); 
-			SHIP_LIST[socket.name] = ship; 
-			console.log('New ship ' + SHIP_LIST[socket.name].name + ' added'); 
-			
-			socket.emit('signUpResponse', {success:true, mapInfo:mapInfo}); 
-		}
+		else 
+			Ship.addShip(data.name, socket); 
 	}); 
 	
-	socket.on('disconnect', function(){
-		delete SOCKET_LIST[socket.name]; 
-		delete SHIP_LIST[socket.name]; 
-		console.log('Player and ship ' + socket.name + ' disconnected and removed'); 
-	}); 
+	socket.on('disconnect', () => Ship.removeShip(socket.name)); 
 	
-	socket.on('keyPress', function(data){
-		SHIP_LIST[socket.name].control['pressing' + data.inputId] = data.state; 
+	socket.on('keyPress', data => {
+		if (socket.name in Ship.list) 
+			Ship.list[socket.name].handleKeyInput(data.inputId, data.state); 
 	}); 
 }); 
 
 
 setInterval(function(){
-	var objList = []; 
 	
-	for(var i in SHIP_LIST){
-		var ship = SHIP_LIST[i]; 
-		ship.update(); 
-		objList.push({name:ship.name, x:ship.x, y:ship.y, bearing:ship.bearing}); 
-	}
-	
-	for(var i in SOCKET_LIST){
-		var socket = SOCKET_LIST[i]; 
-		//console.log(objList); 
-		socket.emit('newPosition', {objList:objList}); 
-	}
+	Ship.update(); 
 
 }, 1000/fps);
