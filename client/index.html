@@ -1,5 +1,5 @@
 <div id="signUpDiv">
-	name: <input id="signUpname" type="text"></input>
+	name: <input id="signUpName" type="text"></input>
 	<button id="signUpButton">Sign Up</button>
 </div>
 
@@ -14,12 +14,12 @@
 	
 	//Sign up 
 	var signUpDiv = document.getElementById("signUpDiv"); 
-	var signUpname = document.getElementById("signUpname"); 
+	var signUpName = document.getElementById("signUpName"); 
 	var signUpButton = document.getElementById("signUpButton"); 
 	var gameDiv = document.getElementById("gameDiv"); 
 	
 	signUpButton.onclick = function(){
-		socket.emit('signUp', {name:signUpname.value}); 
+		socket.emit('signUp', {name:signUpName.value}); 
 	}; 
 	
 	//Canvas setting 
