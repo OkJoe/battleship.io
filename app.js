@@ -3,8 +3,18 @@ var app = express();
 var serv = require('http').Server(app); 
 
 //Utility 
-var mod = function(a,b){
+function mod(a,b) {
 	return (a%b+b)%b; 
+}; 
+function angleDiffUnderPi(a,b) {
+	var diff = a-b; 
+	if (diff < -Math.PI) {
+		return diff + 2 * Math.PI; 
+	}
+	else if (diff > Math.PI) {
+		return diff - 2 * Math.PI; 
+	}
+	else {return diff; }
 }; 
 
 //Setup 
@@ -25,7 +35,9 @@ var fps = 25;
 
 var mapInfo = {size:{x:10000, y:10000}}; 
 
-var physics = {directionRecoverFactor:1-Math.pow((1-0.9),1/fps)}; 
+var physics = {
+	directionRecoverFactor:1-Math.pow((1-0.9),1/fps) // 1-(1-<percentage of angle recovered per second>)^(1/fps)
+}; 
 
 class Entity {
 	constructor() {
@@ -38,8 +50,10 @@ class Entity {
 	updatePosition() {
 		this.x += this.speed*Math.cos(this.direction)/fps; 
 		this.y += this.speed*Math.sin(this.direction)/fps; 
-		this.x = mod(this.x, mapInfo.size.x); 
-		this.y = mod(this.y, mapInfo.size.y); 
+		if (this.x < 0) {this.x = 0} 
+		else if (this.x > mapInfo.size.x) {this.x = mapInfo.size.x}
+		if (this.y < 0) {this.y = 0} 
+		else if (this.y > mapInfo.size.y) {this.y = mapInfo.size.y}
 	}
 	update() {
 		this.updatePosition(); 
@@ -78,13 +92,14 @@ class Ship extends Entity {
 			this.turnCurv += this.stats.rudderRange/this.stats.rudderShift/fps; 
 			if (this.turnCurv > this.stats.rudderRange)
 				this.turnCurv = this.stats.rudderRange; 
-		} else if (this.control.pressingRight){
+		} 
+		else if (this.control.pressingRight){
 			this.turnCurv -= this.stats.rudderRange/this.stats.rudderShift/fps; 
 			if (this.turnCurv < -this.stats.rudderRange)
 				this.turnCurv = -this.stats.rudderRange; 
-		} else {
+		} 
+		else {
 			this.turnCurv -= Math.sign(this.turnCurv)*this.stats.rudderRange/this.stats.rudderShift/fps; 
-			if (this.turnCurv > this.stats.rudderRange) {console.log(this.turnCurv); }
 		}
 	}
 	updateSpeed() {
@@ -94,7 +109,8 @@ class Ship extends Entity {
 		} else if (this.speed > 0 || this.control.pressingReverse){
 			speedIncrease -= this.stats.acc/4; 
 		}
-		speedIncrease -= this.speed*this.stats.decFactor; 
+		speedIncrease -= this.speed*this.stats.decFactor; // Water friction 
+		speedIncrease -= this.speed*Math.abs(angleDiffUnderPi(this.bearing, this.direction)); // Speed lost from turning 
 		this.speed += speedIncrease/fps; 
 		if (Math.abs(this.speed) < 0.01) {this.speed = 0;}
 	} 
@@ -103,15 +119,8 @@ class Ship extends Entity {
 		this.bearing = mod(this.bearing, 2*Math.PI); 
 	}
 	updateVelocityDirection() {
-		if (this.bearing-this.direction>Math.PI) {
-			this.direction += physics.directionRecoverFactor*(this.bearing-2*Math.PI-this.direction); 
+			this.direction += physics.directionRecoverFactor*angleDiffUnderPi(this.bearing, this.direction); 
 			this.direction = mod(this.direction, 2*Math.PI); 
-		} else if (this.bearing-this.direction<-Math.PI) {
-			this.direction += physics.directionRecoverFactor*(this.bearing+2*Math.PI-this.direction); 
-			this.direction = mod(this.direction, 2*Math.PI); 
-		} else {
-			this.direction += physics.directionRecoverFactor*(this.bearing-this.direction); 
-		}
 	} 
 	update() {
 		this.updateTurnCurv(); 
@@ -121,9 +130,9 @@ class Ship extends Entity {
 		this.updateVelocityDirection(); 
 	}
 	sendInfoToClient() {
-		var detectedShipInfoList = []; 
+		var detectedShipInfoList = {}; 
 		for(let name in Ship.list){
-			detectedShipInfoList.push({name, x:Ship.list[name].x, y:Ship.list[name].y, bearing:Ship.list[name].bearing}); 
+			detectedShipInfoList[name] = {position:{x:Ship.list[name].x, y:Ship.list[name].y}, bearing:Ship.list[name].bearing}; 
 		}
 		this.socket.emit('updateFrame', {detectedShipInfoList}); 
 	}
@@ -143,7 +152,7 @@ class Ship extends Entity {
 		Object.defineProperty(socket, 'name', {value:name}); 
 		new Ship(socket); 
 		console.log('New ship ' + name + ' added'); 
-		socket.emit('signUpResponse', {success:true, mapInfo:mapInfo}); 
+		socket.emit('signUpResponse', {success:true, myShip:{name, position:Ship.list[name].position}, mapInfo}); 
 	}
 	static removeShip(name) {
 		delete Ship.list[name]; 
@@ -178,6 +187,6 @@ io.sockets.on('connection', socket => {
 
 setInterval(function(){
 	
-	Ship.update(); 
+	Ship.update(); // Handles updating ship status and emits packages to client 
 
 }, 1000/fps);

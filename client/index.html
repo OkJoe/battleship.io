@@ -23,77 +23,189 @@
 	}; 
 	
 	//Canvas setting 
+	var wholeCanvas; 
+	var mainMap; 
+	var mapInfo; 
 	
-	boardSize = {width:800, height:500}; 
-	canvasPosition = {x:200, y:0}; 
-	canvasSize = {x:500, y:500}; 
-	var displayRange = {
-		x:{lower:0, upper:10000, size:10000, scale:1/20}, 
-		y:{lower:0, upper:10000, size:10000, scale:1/20}, 
-		reset: function(center, size){
-			this.x.size = size.x; 
-			this.x.lower = center.x - this.x.size/2; 
-			this.x.upper = center.x + this.x.size/2; 
-			this.x.scale = canvasSize.x/this.x.size; 
-			this.y.size = size.y; 
-			this.y.lower = center.y - this.y.size/2; 
-			this.y.upper = center.y + this.y.size/2; 
-			this.y.scale = canvasSize.y/this.y.size; 
+	var cvs = document.getElementById("ctx"); 
+	var ctx = cvs.getContext("2d"); 
+	ctx.font = '10px Arial'; 
+	
+	//Canvas objects 
+	
+	class CanvasComponent {
+		constructor(position, size, color) {
+			CanvasComponent.list.push(this); 
+			this.position = position; // position = {x, y} 
+			this.size = size; // size = {width, height} 
+			this.color = color; 
+		}
+		setTransform() {
+			ctx.setTransform(1, 0, 0, 1, this.position.x, this.position.y); 
+		}
+		draw() { 
+			ctx.fillStyle = this.color;
+			ctx.setTransform(1, 0, 0, 1, 0, 0); 
+			ctx.fillRect(this.position.x, this.position.y, this.size.width, this.size.height); // clear the component 
 		}
 	}; 
-	var mapInfo = {size:{x:10000, y:10000}}; 
+	CanvasComponent.list = []; // This is really a list, made to draw in the right order 
 	
-	//Still signing up 
+	class MapComponent extends CanvasComponent {
+		constructor(position, size, myShip, scale, color, displayType, scopeType, grid) {
+			super(position, size, color); 
+			if (scopeType === 'whole') {
+				this.size = {width:mapInfo.size.x*scale, height:mapInfo.size.y*scale}; 
+			}
+			this.scale = scale; 
+			this.myShipName = myShip.name; 
+			this.myPosition = {x:mapInfo.size.x/2, y:mapInfo.size.y/2}; 
+			this.displayType = displayType; 
+			this.scopeType = scopeType; 
+			this.grid = grid; 
+		}
+		setTransform() {
+			ctx.setTransform(this.scale, 0, 0, -this.scale, this.position.x+this.size.width/2, this.position.y + this.size.height/2);
+			ctx.transform(1, 0, 0, 1, -this.myPosition.x, -this.myPosition.y);
+		}
+		drawGrid() {
+			if (this.grid > 1) {
+				this.setTransform(); 
+				for(let i = Math.max(Math.ceil((this.myPosition.x - this.size.width/this.scale/2)/(mapInfo.size.x/this.grid))*(mapInfo.size.x/this.grid), 0); i <= Math.min((this.myPosition.x + this.size.width/this.scale/2), mapInfo.size.x); i += (mapInfo.size.x/this.grid)) {
+					ctx.lineWidth=2/this.scale;
+					ctx.strokeStyle="grey";
+					ctx.beginPath();
+					ctx.moveTo(i, Math.max(this.myPosition.y - this.size.height/this.scale/2, 0)); 
+					ctx.lineTo(i, Math.min(this.myPosition.y + this.size.height/this.scale/2, mapInfo.size.y));
+					ctx.stroke();
+				}
+				for(let i = Math.max(Math.ceil((this.myPosition.y - this.size.height/this.scale/2)/(mapInfo.size.y/this.grid))*(mapInfo.size.y/this.grid), 0); i <= Math.min((this.myPosition.y + this.size.height/this.scale/2), mapInfo.size.y); i += (mapInfo.size.y/this.grid)) {
+					ctx.lineWidth=2/this.scale;
+					ctx.strokeStyle="grey";
+					ctx.beginPath();
+					ctx.moveTo(Math.max(this.myPosition.x - this.size.width/this.scale/2, 0), i); 
+					ctx.lineTo(Math.min(this.myPosition.x + this.size.width/this.scale/2, mapInfo.size.x), i);
+					ctx.stroke();
+				}
+			}
+		}
+		draw() {
+			ctx.fillStyle = this.color;
+			ctx.setTransform(1, 0, 0, 1, 0, 0); 
+			ctx.fillRect(this.position.x, this.position.y, this.size.width, this.size.height); // clear the component 
+			if (this.scopeType === 'centered') {this.myPosition = Ship.list[this.myShipName].position; } 
+			
+			//draw grid 
+			this.drawGrid(); 
+			
+			//draw ships 
+			for(let name in Ship.list) {
+				this.setTransform(); 
+				Ship.list[name].draw(this.scale, this.displayType, this.scopeType, this.size, this.myPosition, (name === this.myShipName)); 
+			}
+		}
+	}; 
 	
+	//Game objects 
+	
+	class status {
+		constructor() {
+			this.speedLevel = 0; // increase to one by steps of 0.25 
+			this.rudderLock = false; // Can also take value 'left' or 'right', which evaluate to boolean true 
+		}
+	}; 
+	
+	class Entity {
+		constructor(position, bearing) {
+			this.position = position; 
+			this.bearing = bearing; 
+		}
+		draw(scale) {}
+		dummyDraw() {}
+	}; 
+	
+	class Ship extends Entity {
+		constructor(name, position, bearing) {
+			super(position, bearing); 
+			this.name = name; 
+		}
+		update(position, bearing) {
+			this.position = position; 
+			this.bearing = bearing; 
+		}
+		draw(scale, displayType, scopeType, displayFrameSize, myPosition, drawingMe) {
+			if (scopeType != 'centered' || (Math.abs(this.position.x-myPosition.x) <= displayFrameSize.width/scale/2 && Math.abs(this.position.y-myPosition.y) <= displayFrameSize.height/scale/2)) {
+				if (displayType === 'detailed') {
+					ctx.transform(1/scale, 0, 0, -1/scale, this.position.x, this.position.y); 
+					ctx.fillStyle = 'black'; 
+					ctx.fillText(this.name, 0, -10); 
+					ctx.transform(scale, 0, 0, -scale, 0, 0); 
+					
+					ctx.strokeStyle="black";
+					ctx.transform(Math.cos(this.bearing), Math.sin(this.bearing), -Math.sin(this.bearing), Math.cos(this.bearing), 0, 0); 
+					ctx.lineWidth=100;
+					ctx.beginPath();
+					ctx.moveTo(0, 0); 
+					ctx.lineTo(-100,0);
+					ctx.stroke();
+					ctx.lineWidth=50;
+					ctx.beginPath();
+					ctx.moveTo(0,0); 
+					ctx.lineTo(100,0);
+					ctx.stroke();
+				}
+				else if (displayType === 'dummy') {
+					if (drawingMe) {ctx.fillStyle = 'green'; }
+					else {ctx.fillStyle = 'white'; }
+					ctx.fillRect(this.position.x-2/scale, this.position.y-2/scale, 4/scale, 4/scale); 
+				}
+			}
+		}
+		static updateList(newShipList) {
+			for(let shipName in Ship.list) {
+				if (!(shipName in newShipList)){
+					delete Ship.list[shipName]; 
+				}
+			}
+			for(let shipName in newShipList) {
+				if (shipName in Ship.list) {
+					Ship.list[shipName].update(newShipList[shipName].position, newShipList[shipName].bearing); 
+				}
+				else {
+					var ship = new Ship(shipName, newShipList[shipName].position, newShipList[shipName].bearing); 
+					Ship.list[shipName] = ship; 
+				}
+			}
+		}
+	}; 
+	Ship.list = {}; 
+	
+	// Socket package handling 
 	socket.on('signUpResponse', function(data){
 		if (data.success){
-			mapInfo = data.mapInfo; 
-			displayRange.reset({x:mapInfo.size.x/2, y:mapInfo.size.y/2}, {x:mapInfo.size.x, y:mapInfo.size.y}); 
-			
 			signUpDiv.style.display = 'none'; 
+			mapInfo = data.mapInfo; 
+			wholeCanvas = new CanvasComponent({x:0,y:0}, {width:800, height:500}, 'white'); 
+			mainMap = new MapComponent({x:200, y:0}, {width:500, height:500}, data.myShip, 1/10, '#AED6F1', 'detailed', 'centered', 10); 
+			miniMap = new MapComponent({x:200, y:0}, undefined, data.myShip, 1/100, 'black', 'dummy', 'whole', 0); 
 			gameDiv.style.display = 'inline-block'; 
-		} else {
-			alert(data.msg); 
-		}
-	}); 
-	
-	//Game 
-	var ctx = document.getElementById("ctx").getContext("2d"); 
-	ctx.font = '10px Arial'; 
-	var convertToCanvasCoord = {
-		x: function(x){
-			return canvasPosition.x + (x - displayRange.x.lower)*displayRange.x.scale; 
-		}, 
-		y: function(y){
-			return canvasPosition.y + (displayRange.y.upper - y)*displayRange.y.scale; 
 		} 
-	}
-	
-	var drawShip = function(x, y, bearing){
-		ctx.lineWidth=4;
-		ctx.beginPath();
-		ctx.moveTo(convertToCanvasCoord.x(x),convertToCanvasCoord.y(y)); 
-		ctx.lineTo(convertToCanvasCoord.x(x)-4*Math.cos(-bearing),convertToCanvasCoord.y(y)-4*Math.sin(-bearing));
-		ctx.stroke();
-		ctx.lineWidth=2;
-		ctx.beginPath();
-		ctx.moveTo(convertToCanvasCoord.x(x),convertToCanvasCoord.y(y)); 
-		ctx.lineTo(convertToCanvasCoord.x(x)+4*Math.cos(-bearing),convertToCanvasCoord.y(y)+4*Math.sin(-bearing));
-		ctx.stroke();
-	}; 
+		else {alert(data.msg); }
+	}); 
 	
 	socket.on('updateFrame', function(data){
-		ctx.clearRect(0, 0, boardSize.width, boardSize.height); 
-		ctx.fillStyle = '#AED6F1';
-		ctx.fillRect(canvasPosition.x, canvasPosition.y, canvasSize.x, canvasSize.y); 
+		// data is composed of: 
+		// a dictionary detectedShipList, with entries name:{position: {x, y}, bearing} 
+		// update 
+		Ship.updateList(data.detectedShipInfoList); 
 		
-		for(var i=0; i<data.detectedShipInfoList.length; i++) {
-			ctx.fillStyle = 'black';
-			ctx.fillText(data.detectedShipInfoList[i].name, convertToCanvasCoord.x(data.detectedShipInfoList[i].x), convertToCanvasCoord.y(data.detectedShipInfoList[i].y)-10); 
-			drawShip(data.detectedShipInfoList[i].x, data.detectedShipInfoList[i].y, data.detectedShipInfoList[i].bearing); 
+		// draw 
+		for(let i=0; i < CanvasComponent.list.length; i++) {
+			CanvasComponent.list[i].draw(); 
 		}
 	}); 
 	
+	// Control handling 
 	document.onkeydown = function(event){
 		if (event.keyCode === 65) {
 			socket.emit('keyPress', {inputId:'Left', state:true}); 
