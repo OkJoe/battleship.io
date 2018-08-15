@@ -122,6 +122,7 @@ class Ship extends Entity {
 			speedLevelCurrent: 'stop', 
 		};
 		this.components = [new ShipComponent({x:50, y:0}, {type:'polygon', vertices:[{x:-50, y:-50}, {x:50, y:0}, {x:-50, y:50}]}), new ShipComponent({x:-50, y:0}, {type:'polygon', vertices:[{x:-50, y:-50}, {x:50, y:-50}, {x:50, y:50}, {x:-50, y:50}]})]; 
+		this.enemyName = undefined; 
 		Ship.list[this.name] = this; 
 	}
 	updateTurnCurv() {
@@ -177,13 +178,17 @@ class Ship extends Entity {
 				components:Ship.list[name].components
 			}; 
 		}
-		this.socket.emit('updateFrame', {
+		var msgToSend = {
 			detectedShipInfoList, 
 			myShip:	{
 				currentSpeedFrac: this.speed/this.stats.maxSpeed, 
 				currentRudderFrac: this.turnCurv/this.stats.rudderRange
+			}, 
+			enemyShip: {
+				name: this.enemyName
 			}
-		}); 
+		}; 
+		this.socket.emit('updateFrame', msgToSend); 
 	}
 	handleSpeedChange(data) {
 		this.control.speedLevelCurrent = data; 
@@ -239,6 +244,10 @@ io.sockets.on('connection', socket => {
 		if (socket.name in Ship.list) {
 			Ship.list[socket.name].handleRudderShift(data); 
 		}
+	}); 
+	
+	socket.on('selectEnemy', data => {
+		Ship.list[socket.name].enemyName = data; 
 	}); 
 }); 
 

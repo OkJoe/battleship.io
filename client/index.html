@@ -27,10 +27,16 @@
 	var mainMap; 
 	var mapInfo; 
 	var myStatusBar; 
+	var enemyStatusBar; 
+	var LMBStatus = {
+		position: {x: 0, y: 0}, 
+		pressed: false, 
+		update: function(x, y, pressed) {this.position.x = x; this.position.y = y; this.pressed = pressed; }
+	}; 
 	
 	var cvs = document.getElementById("ctx"); 
 	var ctx = cvs.getContext("2d"); 
-	ctx.font = '10px Arial'; 
+	ctx.font = '15px Arial'; 
 	
 	//Game objects 
 	
@@ -41,13 +47,16 @@
 			this.rudderLock = 'straight'; // Can also take value 'left' or 'right', which evaluate to boolean true 
 			this.currentSpeedFrac = 0; 
 			this.currentRudderFrac = 0; 
+			this.name = undefined; 
 		}
-		update(currentSpeedFrac, currentRudderFrac) {
+		update(currentSpeedFrac, currentRudderFrac, name) {
 			this.currentSpeedFrac = currentSpeedFrac; 
 			this.currentRudderFrac = currentRudderFrac; 
+			this.name = name; 
 		}
 	}; 
 	var myStatus = new Status(); 
+	var enemyStatus = new Status(); 
 	
 	class Entity {
 		constructor(position, bearing) {
@@ -62,22 +71,45 @@
 		constructor(name, position, bearing, components) {
 			super(position, bearing); 
 			this.components = components; 
-			this.name = name; 
+			this.name = name; // Maybe delete this 
 		}
 		update(position, bearing, components) {
 			this.position = position; 
 			this.bearing = bearing; 
 			this.components = components; 
 		}
-		draw(scale, displayType, scopeType, displayFrameSize, myPosition, drawingMe) {
-			if (scopeType != 'centered' || (Math.abs(this.position.x-myPosition.x) <= displayFrameSize.width/scale/2 && Math.abs(this.position.y-myPosition.y) <= displayFrameSize.height/scale/2)) {
+		draw(scale, displayType, scopeType, displayFrameSize, myPosition, drawingMe, showName, bearingRelMyShip) {
+			var drawShip = true; 
+			if (scopeType === 'centered') {
+				if (Math.abs(this.position.x-myPosition.x) > displayFrameSize.width/scale/2 && Math.abs(this.position.y-myPosition.y) <= displayFrameSize.height/scale/2) {
+					drawShip = false; 
+				}
+			}
+			if (drawShip) {
 				if (displayType === 'detailed') {
-					ctx.transform(1/scale, 0, 0, -1/scale, this.position.x, this.position.y); 
-					ctx.fillStyle = 'black'; 
-					ctx.fillText(this.name, 0, -10); 
-					ctx.transform(scale, 0, 0, -scale, 0, 0); 
+					if (showName) {
+						ctx.transform(1/scale, 0, 0, -1/scale, this.position.x, this.position.y); 
+						ctx.fillStyle = 'black'; 
+						ctx.fillText(this.name, -5, -15); 
+						ctx.transform(scale, 0, 0, -scale, 0, 0); 
+					}
+					else {ctx.transform(1, 0, 0, 1, this.position.x, this.position.y); }
 					
-					ctx.transform(Math.cos(this.bearing), Math.sin(this.bearing), -Math.sin(this.bearing), Math.cos(this.bearing), 0, 0); 
+					if (bearingRelMyShip) {
+						var relVectorLength = Math.sqrt((this.position.x - Ship.list[myStatus.name].position.x)*(this.position.x - Ship.list[myStatus.name].position.x) + (this.position.y - Ship.list[myStatus.name].position.y)*(this.position.y - Ship.list[myStatus.name].position.y)); 
+						console.log(relVectorLength); 
+						if (relVectorLength === 0) {
+							ctx.transform(0, 1, -1, 0, 0, 0);
+						}
+						else {
+							var relVectorCos = (this.position.x - Ship.list[myStatus.name].position.x)/relVectorLength; 
+							var relVectorSin = (this.position.y - Ship.list[myStatus.name].position.y)/relVectorLength; 
+							ctx.transform(Math.cos(this.bearing), Math.sin(this.bearing), -Math.sin(this.bearing), Math.cos(this.bearing), 0, 0); 
+							ctx.transform(relVectorCos, -relVectorSin, relVectorSin, relVectorCos, 0, 0); 
+							ctx.transform(0, 1, -1, 0, 0, 0); 
+						}
+					}
+					else {ctx.transform(Math.cos(this.bearing), Math.sin(this.bearing), -Math.sin(this.bearing), Math.cos(this.bearing), 0, 0); } 
 					for (let i = 0; i < this.components.length; i++) {
 						ctx.fillStyle = 'black'; 
 						if (this.components[i].shape.type === 'polygon') {
@@ -137,11 +169,31 @@
 			ctx.fillRect(this.position.x, this.position.y, this.size.width, this.size.height); // clear the component 
 			this.setTransform(); 
 		}
+		isClickingMe(position) {
+			if (position.x <= this.position.x) {
+				return false; 
+			}
+			else if (position.x >= this.position.x + this.size.width) {
+				return false; 
+			}
+			else if (position.y <= this.position.y) {
+				return false; 
+			}
+			else if (position.y >= this.position.y + this.size.height) {
+				return false; 
+			}
+			return true; 
+		}
+		onClick(position) {
+			if (this.isClickingMe(position)) {
+				// Do something 
+			}
+		}
 	}; 
 	CanvasComponent.list = []; // This is really a list, made to draw in the right order 
 	
 	class MapComponent extends CanvasComponent {
-		constructor(position, size, myShip, scale, color, displayType, scopeType, grid) {
+		constructor(position, size, myShip, scale, color, displayType, scopeType, grid, showName) {
 			super(position, size, color); 
 			if (scopeType === 'whole') {
 				this.size = {width:mapInfo.size.x*scale, height:mapInfo.size.y*scale}; 
@@ -152,9 +204,10 @@
 			this.displayType = displayType; 
 			this.scopeType = scopeType; 
 			this.grid = grid; 
+			this.showName = showName; 
 		}
 		setTransform() {
-			ctx.setTransform(this.scale, 0, 0, -this.scale, this.position.x+this.size.width/2, this.position.y + this.size.height/2);
+			ctx.setTransform(this.scale, 0, 0, -this.scale, this.position.x + this.size.width/2, this.position.y + this.size.height/2);
 			ctx.transform(1, 0, 0, 1, -this.myPosition.x, -this.myPosition.y);
 		}
 		drawGrid() {
@@ -188,7 +241,62 @@
 			//draw ships 
 			for(let name in Ship.list) {
 				this.setTransform(); 
-				Ship.list[name].draw(this.scale, this.displayType, this.scopeType, this.size, this.myPosition, (name === this.myShipName)); 
+				Ship.list[name].draw(this.scale, this.displayType, this.scopeType, this.size, this.myPosition, (name === this.myShipName), this.showName); 
+			}
+		}
+		onClick(position) {
+			if (this.isClickingMe(position)) {
+				var positionInMap = {x:position.x, y:position.y}; 
+				positionInMap.x -= (this.position.x + this.size.width/2); 
+				positionInMap.y = this.position.y - positionInMap.y + this.size.height/2; 
+				positionInMap.x /= this.scale; 
+				positionInMap.y /= this.scale; 
+				positionInMap.x += this.myPosition.x; 
+				positionInMap.y += this.myPosition.y; 
+				console.log(positionInMap.x + ' ' + positionInMap.y); 
+			
+			var closestShipName = undefined; 
+			var minDistanceSquared = mapInfo.size.x*mapInfo.size.x + mapInfo.size.y*mapInfo.size.y; 
+			for (let shipName in Ship.list) {
+				var currentDistanceSquared = (Ship.list[shipName].position.x - positionInMap.x)*(Ship.list[shipName].position.x - positionInMap.x) + (Ship.list[shipName].position.y - positionInMap.y)*(Ship.list[shipName].position.y - positionInMap.y); 
+				if ((closestShipName === undefined || currentDistanceSquared < minDistanceSquared) && shipName != this.myShipName) {
+					minDistanceSquared = currentDistanceSquared; 
+					closestShipName = shipName; 
+				}
+			}
+			socket.emit('selectEnemy', closestShipName); 
+			console.log(closestShipName); 
+			console.log(myStatus.rudderLock); 
+			}
+		}
+	}; 
+	
+	class NameBar extends CanvasComponent {
+		constructor(position, status) {
+			super(position, {width: 100, height: 20}, 'grey'); 
+			this.status = status; 
+		}
+		draw() {
+			super.draw(); 
+			ctx.fillStyle = 'black'; 
+			if (this.status.name) {ctx.fillText(this.status.name, 5, this.size.height); } 
+		}
+	}; 
+	
+	class ShipGraph extends CanvasComponent {
+		constructor(position, status) {
+			super(position, {width: 100, height: 100}, 'grey'); 
+			this.status = status; 
+			this.scale = 0.2; 
+		}
+		setTransform() {
+			ctx.setTransform(this.scale, 0, 0, -this.scale, this.position.x + this.size.width/2, this.position.y + this.size.height/2); 
+			ctx.transform(1, 0, 0, 1, -Ship.list[this.status.name].position.x, -Ship.list[this.status.name].position.y); 
+		} 
+		draw() {
+			if (this.status.name != undefined) {
+				super.draw(); 
+				Ship.list[this.status.name].draw(this.scale, 'detailed', undefined, undefined, undefined, undefined, false, true); 
 			}
 		}
 	}; 
@@ -224,12 +332,17 @@
 	
 	class StatusBar extends CanvasComponent {
 		constructor(position, status) {
-			super(position, {width:100, height:500}, 'white'); 
+			super(position, {width:100, height:500}, 'grey'); 
 			this.status = status; 
-			this.Speedbar = new SpeedBar({x:this.position.x, y:this.position.y+350}, this.status); 
+			this.bars = []; 
+			this.bars.push(new NameBar({x:this.position.x, y:this.position.y}, this.status)); 
+			this.bars.push(new ShipGraph({x:this.position.x, y:this.position.y + 20}, this.status)); 
 		}
 		draw() {
-			this.Speedbar.draw(); 
+			super.draw(); 
+			for (let i = 0; i < this.bars.length; i++) {
+				this.bars[i].draw(); 
+			}
 		}
 	}; 
 	
@@ -239,11 +352,14 @@
 		if (data.success){
 			signUpDiv.style.display = 'none'; 
 			mapInfo = data.mapInfo; 
-			myStatus = new Status(); 
 			wholeCanvas = new CanvasComponent({x:0,y:0}, {width:800, height:500}, 'white'); 
+			myStatus = new Status(); 
+			myStatus.name = data.myShip.name; 
 			myStatusBar = new StatusBar({x:100, y:0}, myStatus); 
-			mainMap = new MapComponent({x:200, y:0}, {width:500, height:500}, data.myShip, 1/10, '#AED6F1', 'detailed', 'centered', 10); 
-			miniMap = new MapComponent({x:200, y:0}, undefined, data.myShip, 1/100, 'black', 'dummy', 'whole', 0); 
+			myStatusBar.bars.push(new SpeedBar({x:myStatusBar.position.x, y:myStatusBar.position.y+350}, myStatusBar.status)); 
+			enemyStatusBar = new StatusBar({x:700, y:0}, enemyStatus); 
+			mainMap = new MapComponent({x:200, y:0}, {width:500, height:500}, data.myShip, 1/10, '#AED6F1', 'detailed', 'centered', 10, true, false); 
+			miniMap = new MapComponent({x:200, y:0}, undefined, data.myShip, 1/100, 'black', 'dummy', 'whole', 0, false, undefined); 
 			gameDiv.style.display = 'inline-block'; 
 		} 
 		else {alert(data.msg); }
@@ -256,7 +372,8 @@
 		// a dictionary myShip = {currentSpeedFrac, currentRudderFrac} 
 		
 		// update 
-		myStatus.update(data.myShip.currentSpeedFrac, data.myShip.currentRudderFrac); 
+		myStatus.update(data.myShip.currentSpeedFrac, data.myShip.currentRudderFrac, myStatus.name); 
+		enemyStatus.update(0, 0, data.enemyShip.name); 
 		Ship.updateList(data.detectedShipInfoList); 
 		
 		// draw 
@@ -264,8 +381,6 @@
 			CanvasComponent.list[i].draw(); 
 		}
 		ctx.setTransform(1, 0, 0, 1, 0, 0); 
-		ctx.fillText('Speed = ' + myStatus.speedLevels[myStatus.speedLevelIndex], 0, 10); 
-		ctx.fillText('Rudder = ' + myStatus.rudderLock, 0, 20); 
 	}); 
 	
 	// Control handling 
@@ -317,5 +432,16 @@
 			myStatus.rudderLock = 'straight'; 
 			socket.emit('rudderShift', 'straight'); 
 		} 
+	}; 
+	
+	document.onmousedown = function(event){
+		LMBStatus.update(event.pageX, event.pageY, true); 
+		for (let i = 0; i < CanvasComponent.list.length; i++) {
+			CanvasComponent.list[i].onClick(LMBStatus.position); 
+		}
+	}; 
+	
+	document.onmouseup = function(event){
+		LMBStatus.update(event.pageX, event.pageY, false); 
 	}; 
 </script>
