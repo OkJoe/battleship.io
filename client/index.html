@@ -59,13 +59,15 @@
 	}; 
 	
 	class Ship extends Entity {
-		constructor(name, position, bearing) {
+		constructor(name, position, bearing, components) {
 			super(position, bearing); 
+			this.components = components; 
 			this.name = name; 
 		}
-		update(position, bearing) {
+		update(position, bearing, components) {
 			this.position = position; 
 			this.bearing = bearing; 
+			this.components = components; 
 		}
 		draw(scale, displayType, scopeType, displayFrameSize, myPosition, drawingMe) {
 			if (scopeType != 'centered' || (Math.abs(this.position.x-myPosition.x) <= displayFrameSize.width/scale/2 && Math.abs(this.position.y-myPosition.y) <= displayFrameSize.height/scale/2)) {
@@ -75,18 +77,21 @@
 					ctx.fillText(this.name, 0, -10); 
 					ctx.transform(scale, 0, 0, -scale, 0, 0); 
 					
-					ctx.strokeStyle="black";
 					ctx.transform(Math.cos(this.bearing), Math.sin(this.bearing), -Math.sin(this.bearing), Math.cos(this.bearing), 0, 0); 
-					ctx.lineWidth=100;
-					ctx.beginPath();
-					ctx.moveTo(0, 0); 
-					ctx.lineTo(-100,0);
-					ctx.stroke();
-					ctx.lineWidth=50;
-					ctx.beginPath();
-					ctx.moveTo(0,0); 
-					ctx.lineTo(100,0);
-					ctx.stroke();
+					for (let i = 0; i < this.components.length; i++) {
+						ctx.fillStyle = 'black'; 
+						if (this.components[i].shape.type === 'polygon') {
+							ctx.transform(1, 0, 0, 1, this.components[i].position.x, this.components[i].position.y); 
+							ctx.beginPath();
+							ctx.moveTo(this.components[i].shape.vertices[0].x, this.components[i].shape.vertices[0].y); 
+							for (let j = 1; j < this.components[i].shape.vertices.length; j++) {
+								ctx.lineTo(this.components[i].shape.vertices[j].x, this.components[i].shape.vertices[j].y);
+							}
+							ctx.closePath(); 
+							ctx.fill(); 
+							ctx.transform(1, 0, 0, 1, -this.components[i].position.x, -this.components[i].position.y); 
+						}
+					}
 				}
 				else if (displayType === 'dummy') {
 					if (drawingMe) {ctx.fillStyle = 'green'; }
@@ -103,10 +108,10 @@
 			}
 			for(let shipName in newShipList) {
 				if (shipName in Ship.list) {
-					Ship.list[shipName].update(newShipList[shipName].position, newShipList[shipName].bearing); 
+					Ship.list[shipName].update(newShipList[shipName].position, newShipList[shipName].bearing, newShipList[shipName].components); 
 				}
 				else {
-					var ship = new Ship(shipName, newShipList[shipName].position, newShipList[shipName].bearing); 
+					var ship = new Ship(shipName, newShipList[shipName].position, newShipList[shipName].bearing, newShipList[shipName].components); 
 					Ship.list[shipName] = ship; 
 				}
 			}
@@ -188,7 +193,7 @@
 		}
 	}; 
 	
-		class SpeedBar extends CanvasComponent {
+	class SpeedBar extends CanvasComponent {
 		constructor(position, status) {
 			super(position, {width:100, height:100}, 'white')
 			this.rudderLockDic = {'left': -this.size.width/2, 'straight': 0, 'right': this.size.width/2}; 
@@ -247,7 +252,7 @@
 	// Update frame 
 	socket.on('updateFrame', function(data){
 		// data is composed of: 
-		// a dictionary detectedShipList, with entries name:{position: {x, y}, bearing} 
+		// a dictionary detectedShipList, with entries name:{position: {x, y}, bearing, components} 
 		// a dictionary myShip = {currentSpeedFrac, currentRudderFrac} 
 		
 		// update 

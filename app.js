@@ -40,6 +40,7 @@ var physics = {
 	waterFrictionFactor:20/fps // <fraction of speed lost per second per angular difference of bearing and velocity direction>/fps 
 }; 
 
+//Game objects
 class Entity {
 	constructor() {
 		this.id = Math.random().toString(); 
@@ -61,7 +62,38 @@ class Entity {
 	}
 }; 
 
-//Ship 
+//Ship elements 
+class ShipElement {// Coordinates are relative to the ship, shape coordinates are relative to the element position 
+	constructor(position, shape) {
+		this.position = position; 
+		this.shape = shape; //example: {type: 'polygon', vertices: [{x, y}, ...]} 
+		//type polygon is always convex, the vertices are listed in an anti-clockwise order 
+	}
+	isInside(position) {
+		if (this.shape.type === 'polygon') {
+			for (let i = 0; i < this.shape.vertices.length; i++) {
+				var vectorStart = {x:this.position.x + this.shape.vertices[i].x - position.x, y:this.position.y + this.shape.vertices[i].y - position.y}; 
+				var vectorEnd = {x:this.position.x + this.shape.vertices[(i+1)%this.shape.vertices.length].x - position.x, y:this.position.y + this.shape.vertices[(i+1)%this.shape.vertices.length].y - position.y}; 
+				if (vectorStart.x*vectorEnd.y-vectorStart.y*vectorEnd.x < 0) {return false; }
+			}
+		}
+		return true; 
+	}
+}
+
+class ShipComponent extends ShipElement {
+	constructor(position, shape) {
+		super(position, shape); 
+		this.modules = []; 
+		this.HP = 5; 
+	}
+	hit(position) {
+		if (this.isInside(position)) {
+			this.HP = Math.max(this.HP - 1, 0); 
+		}
+	}
+}
+
 class Ship extends Entity {
 	constructor(socket) {
 		super(); 
@@ -89,6 +121,7 @@ class Ship extends Entity {
 			}, 
 			speedLevelCurrent: 'stop', 
 		};
+		this.components = [new ShipComponent({x:50, y:0}, {type:'polygon', vertices:[{x:-50, y:-50}, {x:50, y:0}, {x:-50, y:50}]}), new ShipComponent({x:-50, y:0}, {type:'polygon', vertices:[{x:-50, y:-50}, {x:50, y:-50}, {x:50, y:50}, {x:-50, y:50}]})]; 
 		Ship.list[this.name] = this; 
 	}
 	updateTurnCurv() {
@@ -135,7 +168,14 @@ class Ship extends Entity {
 	sendInfoToClient() {
 		var detectedShipInfoList = {}; 
 		for(let name in Ship.list){
-			detectedShipInfoList[name] = {position:{x:Ship.list[name].x, y:Ship.list[name].y}, bearing:Ship.list[name].bearing}; 
+			detectedShipInfoList[name] = {
+				position:{
+					x:Ship.list[name].x, 
+					y:Ship.list[name].y
+				}, 
+				bearing:Ship.list[name].bearing, 
+				components:Ship.list[name].components
+			}; 
 		}
 		this.socket.emit('updateFrame', {
 			detectedShipInfoList, 
