@@ -26,94 +26,28 @@
 	var wholeCanvas; 
 	var mainMap; 
 	var mapInfo; 
+	var myStatusBar; 
 	
 	var cvs = document.getElementById("ctx"); 
 	var ctx = cvs.getContext("2d"); 
 	ctx.font = '10px Arial'; 
 	
-	//Canvas objects 
-	
-	class CanvasComponent {
-		constructor(position, size, color) {
-			CanvasComponent.list.push(this); 
-			this.position = position; // position = {x, y} 
-			this.size = size; // size = {width, height} 
-			this.color = color; 
-		}
-		setTransform() {
-			ctx.setTransform(1, 0, 0, 1, this.position.x, this.position.y); 
-		}
-		draw() { 
-			ctx.fillStyle = this.color;
-			ctx.setTransform(1, 0, 0, 1, 0, 0); 
-			ctx.fillRect(this.position.x, this.position.y, this.size.width, this.size.height); // clear the component 
-		}
-	}; 
-	CanvasComponent.list = []; // This is really a list, made to draw in the right order 
-	
-	class MapComponent extends CanvasComponent {
-		constructor(position, size, myShip, scale, color, displayType, scopeType, grid) {
-			super(position, size, color); 
-			if (scopeType === 'whole') {
-				this.size = {width:mapInfo.size.x*scale, height:mapInfo.size.y*scale}; 
-			}
-			this.scale = scale; 
-			this.myShipName = myShip.name; 
-			this.myPosition = {x:mapInfo.size.x/2, y:mapInfo.size.y/2}; 
-			this.displayType = displayType; 
-			this.scopeType = scopeType; 
-			this.grid = grid; 
-		}
-		setTransform() {
-			ctx.setTransform(this.scale, 0, 0, -this.scale, this.position.x+this.size.width/2, this.position.y + this.size.height/2);
-			ctx.transform(1, 0, 0, 1, -this.myPosition.x, -this.myPosition.y);
-		}
-		drawGrid() {
-			if (this.grid > 1) {
-				this.setTransform(); 
-				for(let i = Math.max(Math.ceil((this.myPosition.x - this.size.width/this.scale/2)/(mapInfo.size.x/this.grid))*(mapInfo.size.x/this.grid), 0); i <= Math.min((this.myPosition.x + this.size.width/this.scale/2), mapInfo.size.x); i += (mapInfo.size.x/this.grid)) {
-					ctx.lineWidth=2/this.scale;
-					ctx.strokeStyle="grey";
-					ctx.beginPath();
-					ctx.moveTo(i, Math.max(this.myPosition.y - this.size.height/this.scale/2, 0)); 
-					ctx.lineTo(i, Math.min(this.myPosition.y + this.size.height/this.scale/2, mapInfo.size.y));
-					ctx.stroke();
-				}
-				for(let i = Math.max(Math.ceil((this.myPosition.y - this.size.height/this.scale/2)/(mapInfo.size.y/this.grid))*(mapInfo.size.y/this.grid), 0); i <= Math.min((this.myPosition.y + this.size.height/this.scale/2), mapInfo.size.y); i += (mapInfo.size.y/this.grid)) {
-					ctx.lineWidth=2/this.scale;
-					ctx.strokeStyle="grey";
-					ctx.beginPath();
-					ctx.moveTo(Math.max(this.myPosition.x - this.size.width/this.scale/2, 0), i); 
-					ctx.lineTo(Math.min(this.myPosition.x + this.size.width/this.scale/2, mapInfo.size.x), i);
-					ctx.stroke();
-				}
-			}
-		}
-		draw() {
-			ctx.fillStyle = this.color;
-			ctx.setTransform(1, 0, 0, 1, 0, 0); 
-			ctx.fillRect(this.position.x, this.position.y, this.size.width, this.size.height); // clear the component 
-			if (this.scopeType === 'centered') {this.myPosition = Ship.list[this.myShipName].position; } 
-			
-			//draw grid 
-			this.drawGrid(); 
-			
-			//draw ships 
-			for(let name in Ship.list) {
-				this.setTransform(); 
-				Ship.list[name].draw(this.scale, this.displayType, this.scopeType, this.size, this.myPosition, (name === this.myShipName)); 
-			}
-		}
-	}; 
-	
 	//Game objects 
 	
-	class status {
+	class Status {
 		constructor() {
-			this.speedLevel = 0; // increase to one by steps of 0.25 
-			this.rudderLock = false; // Can also take value 'left' or 'right', which evaluate to boolean true 
+			this.speedLevels = ['reverse', 'stop', 'half', 'full']
+			this.speedLevelIndex = 1; 
+			this.rudderLock = 'straight'; // Can also take value 'left' or 'right', which evaluate to boolean true 
+			this.currentSpeedFrac = 0; 
+			this.currentRudderFrac = 0; 
+		}
+		update(currentSpeedFrac, currentRudderFrac) {
+			this.currentSpeedFrac = currentSpeedFrac; 
+			this.currentRudderFrac = currentRudderFrac; 
 		}
 	}; 
+	var myStatus = new Status(); 
 	
 	class Entity {
 		constructor(position, bearing) {
@@ -180,12 +114,129 @@
 	}; 
 	Ship.list = {}; 
 	
+	//Canvas objects 
+	
+	class CanvasComponent {
+		constructor(position, size, color) {
+			CanvasComponent.list.push(this); 
+			this.position = position; // position = {x, y} 
+			this.size = size; // size = {width, height} 
+			this.color = color; 
+		}
+		setTransform() {
+			ctx.setTransform(1, 0, 0, 1, this.position.x, this.position.y); 
+		} // set you up for drawing
+		draw() { 
+			ctx.fillStyle = this.color;
+			ctx.setTransform(1, 0, 0, 1, 0, 0); 
+			ctx.fillRect(this.position.x, this.position.y, this.size.width, this.size.height); // clear the component 
+			this.setTransform(); 
+		}
+	}; 
+	CanvasComponent.list = []; // This is really a list, made to draw in the right order 
+	
+	class MapComponent extends CanvasComponent {
+		constructor(position, size, myShip, scale, color, displayType, scopeType, grid) {
+			super(position, size, color); 
+			if (scopeType === 'whole') {
+				this.size = {width:mapInfo.size.x*scale, height:mapInfo.size.y*scale}; 
+			}
+			this.scale = scale; 
+			this.myShipName = myShip.name; 
+			this.myPosition = {x:mapInfo.size.x/2, y:mapInfo.size.y/2}; 
+			this.displayType = displayType; 
+			this.scopeType = scopeType; 
+			this.grid = grid; 
+		}
+		setTransform() {
+			ctx.setTransform(this.scale, 0, 0, -this.scale, this.position.x+this.size.width/2, this.position.y + this.size.height/2);
+			ctx.transform(1, 0, 0, 1, -this.myPosition.x, -this.myPosition.y);
+		}
+		drawGrid() {
+			if (this.grid > 1) {
+				this.setTransform(); 
+				for(let i = Math.max(Math.ceil((this.myPosition.x - this.size.width/this.scale/2)/(mapInfo.size.x/this.grid))*(mapInfo.size.x/this.grid), 0); i <= Math.min((this.myPosition.x + this.size.width/this.scale/2), mapInfo.size.x); i += (mapInfo.size.x/this.grid)) {
+					ctx.lineWidth=2/this.scale;
+					ctx.strokeStyle="grey";
+					ctx.beginPath();
+					ctx.moveTo(i, Math.max(this.myPosition.y - this.size.height/this.scale/2, 0)); 
+					ctx.lineTo(i, Math.min(this.myPosition.y + this.size.height/this.scale/2, mapInfo.size.y));
+					ctx.stroke();
+				}
+				for(let i = Math.max(Math.ceil((this.myPosition.y - this.size.height/this.scale/2)/(mapInfo.size.y/this.grid))*(mapInfo.size.y/this.grid), 0); i <= Math.min((this.myPosition.y + this.size.height/this.scale/2), mapInfo.size.y); i += (mapInfo.size.y/this.grid)) {
+					ctx.lineWidth=2/this.scale;
+					ctx.strokeStyle="grey";
+					ctx.beginPath();
+					ctx.moveTo(Math.max(this.myPosition.x - this.size.width/this.scale/2, 0), i); 
+					ctx.lineTo(Math.min(this.myPosition.x + this.size.width/this.scale/2, mapInfo.size.x), i);
+					ctx.stroke();
+				}
+			}
+		}
+		draw() {
+			super.draw(); 
+			if (this.scopeType === 'centered') {this.myPosition = Ship.list[this.myShipName].position; } 
+			
+			//draw grid 
+			this.drawGrid(); 
+			
+			//draw ships 
+			for(let name in Ship.list) {
+				this.setTransform(); 
+				Ship.list[name].draw(this.scale, this.displayType, this.scopeType, this.size, this.myPosition, (name === this.myShipName)); 
+			}
+		}
+	}; 
+	
+		class SpeedBar extends CanvasComponent {
+		constructor(position, status) {
+			super(position, {width:100, height:100}, 'white')
+			this.rudderLockDic = {'left': -this.size.width/2, 'straight': 0, 'right': this.size.width/2}; 
+			this.speedLockDic = {'full': 4*this.size.height/5, 'half': 2*this.size.height/5, 'stop': 0, 'reverse': -this.size.height/5}; 
+			this.status = status; 
+		}
+		setTransform() {
+			ctx.setTransform(1, 0, 0, -1, this.position.x + this.size.width/2, this.position.y + 4*this.size.height/5); 
+		} // set you up for drawing
+		draw() {
+			super.draw(); 
+			ctx.strokeStyle="black";
+			ctx.lineWidth=5;
+			ctx.beginPath();
+			ctx.moveTo(this.rudderLockDic['left'], 0); 
+			ctx.lineTo(this.rudderLockDic['right'], 0);
+			ctx.stroke();
+			ctx.beginPath();
+			ctx.moveTo(0, this.speedLockDic['full']); 
+			ctx.lineTo(0, this.speedLockDic['reverse']);
+			ctx.stroke();
+			ctx.fillStyle = 'red';
+			ctx.fillRect(this.rudderLockDic[this.status.rudderLock]-5, this.speedLockDic[this.status.speedLevels[this.status.speedLevelIndex]]-5, 10, 10); 
+			ctx.fillStyle = 'blue';
+			ctx.fillRect(this.rudderLockDic['left']*this.status.currentRudderFrac-5, this.speedLockDic['full']*this.status.currentSpeedFrac-5, 10, 10); 
+		}
+	}; 
+	
+	class StatusBar extends CanvasComponent {
+		constructor(position, status) {
+			super(position, {width:100, height:500}, 'white'); 
+			this.status = status; 
+			this.Speedbar = new SpeedBar({x:this.position.x, y:this.position.y+350}, this.status); 
+		}
+		draw() {
+			this.Speedbar.draw(); 
+		}
+	}; 
+	
 	// Socket package handling 
+	// Signup response 
 	socket.on('signUpResponse', function(data){
 		if (data.success){
 			signUpDiv.style.display = 'none'; 
 			mapInfo = data.mapInfo; 
+			myStatus = new Status(); 
 			wholeCanvas = new CanvasComponent({x:0,y:0}, {width:800, height:500}, 'white'); 
+			myStatusBar = new StatusBar({x:100, y:0}, myStatus); 
 			mainMap = new MapComponent({x:200, y:0}, {width:500, height:500}, data.myShip, 1/10, '#AED6F1', 'detailed', 'centered', 10); 
 			miniMap = new MapComponent({x:200, y:0}, undefined, data.myShip, 1/100, 'black', 'dummy', 'whole', 0); 
 			gameDiv.style.display = 'inline-block'; 
@@ -193,40 +244,73 @@
 		else {alert(data.msg); }
 	}); 
 	
+	// Update frame 
 	socket.on('updateFrame', function(data){
 		// data is composed of: 
 		// a dictionary detectedShipList, with entries name:{position: {x, y}, bearing} 
+		// a dictionary myShip = {currentSpeedFrac, currentRudderFrac} 
+		
 		// update 
+		myStatus.update(data.myShip.currentSpeedFrac, data.myShip.currentRudderFrac); 
 		Ship.updateList(data.detectedShipInfoList); 
 		
 		// draw 
 		for(let i=0; i < CanvasComponent.list.length; i++) {
 			CanvasComponent.list[i].draw(); 
 		}
+		ctx.setTransform(1, 0, 0, 1, 0, 0); 
+		ctx.fillText('Speed = ' + myStatus.speedLevels[myStatus.speedLevelIndex], 0, 10); 
+		ctx.fillText('Rudder = ' + myStatus.rudderLock, 0, 20); 
 	}); 
 	
 	// Control handling 
 	document.onkeydown = function(event){
-		if (event.keyCode === 65) {
-			socket.emit('keyPress', {inputId:'Left', state:true}); 
-		} else if (event.keyCode === 68) {
-			socket.emit('keyPress', {inputId:'Right', state:true}); 
-		} else if (event.keyCode === 87) {
-			socket.emit('keyPress', {inputId:'Acc', state:true}); 
-		} else if (event.keyCode === 83) {
-			socket.emit('keyPress', {inputId:'Reverse', state:true}); 
-		}
+		if (event.keyCode === 65) {// On pressing 'a' 
+			myStatus.rudderLock = 'left'; 
+			socket.emit('rudderShift', 'left'); 
+		} 
+		else if (event.keyCode === 68) {
+			myStatus.rudderLock = 'right'; 
+			socket.emit('rudderShift', 'right'); 
+		} 
+		else if (event.keyCode === 81) {
+			if (myStatus.rudderLock === 'right') {
+				myStatus.rudderLock = 'straight'; 
+				socket.emit('rudderShift', 'straight'); 
+			}
+			else {
+				myStatus.rudderLock = 'left'; 
+				socket.emit('rudderShift', 'left'); 
+			}
+		} 
+		else if (event.keyCode === 69) {
+			if (myStatus.rudderLock === 'left') {
+				myStatus.rudderLock = 'straight'; 
+				socket.emit('rudderShift', 'straight'); 
+			}
+			else {
+				myStatus.rudderLock = 'right'; 
+				socket.emit('rudderShift', 'right'); 
+			}
+		} 
+		else if (event.keyCode === 87) {
+			myStatus.speedLevelIndex = Math.min(myStatus.speedLevelIndex + 1, 3)
+			socket.emit('speedChange', myStatus.speedLevels[myStatus.speedLevelIndex]); 
+		} 
+		else if (event.keyCode === 83) {
+			myStatus.speedLevelIndex = Math.max(myStatus.speedLevelIndex - 1, 0)
+			socket.emit('speedChange', myStatus.speedLevels[myStatus.speedLevelIndex]); 
+		} 
 	}; 
 	
 	document.onkeyup = function(event){
 		if (event.keyCode === 65) {
-			socket.emit('keyPress', {inputId:'Left', state:false}); 
-		} else if (event.keyCode === 68) {
-			socket.emit('keyPress', {inputId:'Right', state:false}); 
-		} else if (event.keyCode === 87) {
-			socket.emit('keyPress', {inputId:'Acc', state:false}); 
-		} else if (event.keyCode === 83) {
-			socket.emit('keyPress', {inputId:'Reverse', state:false}); 
-		}
+			myStatus.rudderLock = 'straight'; 
+			socket.emit('rudderShift', 'straight'); 
+		} 
+		else if (event.keyCode === 68) {
+			myStatus.rudderLock = 'straight'; 
+			socket.emit('rudderShift', 'straight'); 
+		} 
 	}; 
 </script>

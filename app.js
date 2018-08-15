@@ -36,7 +36,8 @@ var fps = 25;
 var mapInfo = {size:{x:10000, y:10000}}; 
 
 var physics = {
-	directionRecoverFactor:1-Math.pow((1-0.9),1/fps) // 1-(1-<percentage of angle recovered per second>)^(1/fps)
+	directionRecoverFactor:1-Math.pow((1-0.9),1/fps), // 1-(1-<percentage of angle recovered per second>)^(1/fps)
+	waterFrictionFactor:20/fps // <fraction of speed lost per second per angular difference of bearing and velocity direction>/fps 
 }; 
 
 class Entity {
@@ -61,7 +62,6 @@ class Entity {
 }; 
 
 //Ship 
-
 class Ship extends Entity {
 	constructor(socket) {
 		super(); 
@@ -73,44 +73,47 @@ class Ship extends Entity {
 		this.direction = this.bearing; 
 		this.turnCurv = 0; 
 		this.stats = {
-			decFactor: 0.1, //the amount of max speed recovered each second without consideration of deceleration 
+			maxSpeed: 500, 
+			decFactor: 0.2, //the amount of max speed recovered each second without consideration of deceleration 
 			rudderShift: 2, 
 			rudderRange: 1/500 //1 / turning radius 
 		}; 
-		this.stats.acc = 500*this.stats.decFactor; //max speed * deceleration factor 
+		this.stats.acc = this.stats.maxSpeed*this.stats.decFactor; //max speed * deceleration factor 
 		this.control = {
-			pressingLeft: false, 
-			pressingRight: false, 
-			pressingAcc: false, 
-			pressingReverse: false
+			rudderLock: false, 
+			speedLevels: {
+				reverse: -0.25, 
+				stop: 0, 
+				half: 0.5, 
+				full: 1, 
+			}, 
+			speedLevelCurrent: 'stop', 
 		};
 		Ship.list[this.name] = this; 
 	}
 	updateTurnCurv() {
-		if (this.control.pressingLeft){
+		if (this.control.rudderLock === 'left'){
 			if (!this.control.pressingRight)
 			this.turnCurv += this.stats.rudderRange/this.stats.rudderShift/fps; 
 			if (this.turnCurv > this.stats.rudderRange)
 				this.turnCurv = this.stats.rudderRange; 
 		} 
-		else if (this.control.pressingRight){
+		else if (this.control.rudderLock === 'right'){
 			this.turnCurv -= this.stats.rudderRange/this.stats.rudderShift/fps; 
 			if (this.turnCurv < -this.stats.rudderRange)
 				this.turnCurv = -this.stats.rudderRange; 
 		} 
 		else {
 			this.turnCurv -= Math.sign(this.turnCurv)*this.stats.rudderRange/this.stats.rudderShift/fps; 
+			if (Math.abs(this.turnCurv) < this.stats.rudderRange/this.stats.rudderShift/fps) {
+				this.turnCurv = 0; 
+			}
 		}
 	}
 	updateSpeed() {
-		var speedIncrease = 0; 
-		if (this.control.pressingAcc){
-			speedIncrease += this.stats.acc; 
-		} else if (this.speed > 0 || this.control.pressingReverse){
-			speedIncrease -= this.stats.acc/4; 
-		}
+		var speedIncrease = this.stats.acc*this.control.speedLevels[this.control.speedLevelCurrent]; 
 		speedIncrease -= this.speed*this.stats.decFactor; // Water friction 
-		speedIncrease -= this.speed*Math.abs(angleDiffUnderPi(this.bearing, this.direction)); // Speed lost from turning 
+		speedIncrease -= this.speed*Math.abs(angleDiffUnderPi(this.bearing, this.direction))*physics.waterFrictionFactor; // Speed lost from turning 
 		this.speed += speedIncrease/fps; 
 		if (Math.abs(this.speed) < 0.01) {this.speed = 0;}
 	} 
@@ -134,11 +137,19 @@ class Ship extends Entity {
 		for(let name in Ship.list){
 			detectedShipInfoList[name] = {position:{x:Ship.list[name].x, y:Ship.list[name].y}, bearing:Ship.list[name].bearing}; 
 		}
-		this.socket.emit('updateFrame', {detectedShipInfoList}); 
+		this.socket.emit('updateFrame', {
+			detectedShipInfoList, 
+			myShip:	{
+				currentSpeedFrac: this.speed/this.stats.maxSpeed, 
+				currentRudderFrac: this.turnCurv/this.stats.rudderRange
+			}
+		}); 
 	}
-	handleKeyInput(inputId, state) {
-		if ('pressing' + inputId in this.control)
-			this.control['pressing' + inputId] = state; 
+	handleSpeedChange(data) {
+		this.control.speedLevelCurrent = data; 
+	}
+	handleRudderShift(data) {
+		this.control.rudderLock = data; 
 	}
 	static update() {
 		for (let name in Ship.list) {
@@ -178,9 +189,16 @@ io.sockets.on('connection', socket => {
 	
 	socket.on('disconnect', () => Ship.removeShip(socket.name)); 
 	
-	socket.on('keyPress', data => {
-		if (socket.name in Ship.list) 
-			Ship.list[socket.name].handleKeyInput(data.inputId, data.state); 
+	socket.on('speedChange', data => {
+		if (socket.name in Ship.list) {
+			Ship.list[socket.name].handleSpeedChange(data); 
+		}
+	}); 
+	
+	socket.on('rudderShift', data => {
+		if (socket.name in Ship.list) {
+			Ship.list[socket.name].handleRudderShift(data); 
+		}
 	}); 
 }); 
 
