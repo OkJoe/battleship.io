@@ -48,6 +48,8 @@
 			this.currentSpeedFrac = 0; 
 			this.currentRudderFrac = 0; 
 			this.name = undefined; 
+			this.weapons = ['minelayer']; 
+			this.selectedWeaponIndex = 0; 
 		}
 		update(currentSpeedFrac, currentRudderFrac, name) {
 			this.currentSpeedFrac = currentSpeedFrac; 
@@ -63,9 +65,39 @@
 			this.position = position; 
 			this.bearing = bearing; 
 		}
+		isInMapScope(scale, displayFrameSize, mapCenterPosition) {
+			if (Math.abs(this.position.x-mapCenterPosition.x) <= displayFrameSize.width/scale/2 && Math.abs(this.position.y-mapCenterPosition.y) <= displayFrameSize.height/scale/2) {
+				return true; 
+			}
+			else {return false; }
+		}
 		draw(scale) {}
-		dummyDraw() {}
 	}; 
+	
+	class Mine extends Entity {
+		constructor(position) {
+			super(position, undefined); 
+		} 
+		draw(scale, displayFrameSize, myPosition) {
+			if (this.isInMapScope(scale, displayFrameSize, myPosition)) {
+				ctx.fillStyle = 'white'; 
+				ctx.fillRect(this.position.x-2/scale, this.position.y-2/scale, 4/scale, 4/scale); 
+			}
+		} 
+		static update(newMineList) {
+			for(let id in Mine.list) {
+				if (!(id in newMineList)){
+					delete Mine.list[id]; 
+				}
+			}
+			for(let id in newMineList) {
+				if (!(id in Mine.list)) {
+					Mine.list[id] = new Mine(newMineList[id].position); 
+				}
+			}
+		} 
+	} 
+	Mine.list = {}; 
 	
 	class Ship extends Entity {
 		constructor(name, position, bearing, components) {
@@ -81,10 +113,8 @@
 		draw(scale, displayType, scopeType, displayFrameSize, myPosition, drawingMe, showName, bearingRelMyShip) {
 			var drawShip = true; 
 			if (scopeType === 'centered') {
-				if (Math.abs(this.position.x-myPosition.x) > displayFrameSize.width/scale/2 && Math.abs(this.position.y-myPosition.y) <= displayFrameSize.height/scale/2) {
-					drawShip = false; 
-				}
-			}
+				drawShip = this.isInMapScope(scale, displayFrameSize, myPosition); 
+			} 
 			if (drawShip) {
 				if (displayType === 'detailed') {
 					if (showName) {
@@ -97,7 +127,6 @@
 					
 					if (bearingRelMyShip) {
 						var relVectorLength = Math.sqrt((this.position.x - Ship.list[myStatus.name].position.x)*(this.position.x - Ship.list[myStatus.name].position.x) + (this.position.y - Ship.list[myStatus.name].position.y)*(this.position.y - Ship.list[myStatus.name].position.y)); 
-						console.log(relVectorLength); 
 						if (relVectorLength === 0) {
 							ctx.transform(0, 1, -1, 0, 0, 0);
 						}
@@ -132,7 +161,7 @@
 				}
 			}
 		}
-		static updateList(newShipList) {
+		static update(newShipList) {
 			for(let shipName in Ship.list) {
 				if (!(shipName in newShipList)){
 					delete Ship.list[shipName]; 
@@ -193,7 +222,7 @@
 	CanvasComponent.list = []; // This is really a list, made to draw in the right order 
 	
 	class MapComponent extends CanvasComponent {
-		constructor(position, size, myShip, scale, color, displayType, scopeType, grid, showName) {
+		constructor(position, size, myShip, scale, color, displayType, scopeType, grid, showName, drawWeapon) {
 			super(position, size, color); 
 			if (scopeType === 'whole') {
 				this.size = {width:mapInfo.size.x*scale, height:mapInfo.size.y*scale}; 
@@ -205,6 +234,7 @@
 			this.scopeType = scopeType; 
 			this.grid = grid; 
 			this.showName = showName; 
+			this.drawWeapon = drawWeapon; 
 		}
 		setTransform() {
 			ctx.setTransform(this.scale, 0, 0, -this.scale, this.position.x + this.size.width/2, this.position.y + this.size.height/2);
@@ -242,6 +272,14 @@
 			for(let name in Ship.list) {
 				this.setTransform(); 
 				Ship.list[name].draw(this.scale, this.displayType, this.scopeType, this.size, this.myPosition, (name === this.myShipName), this.showName); 
+			}
+			
+			//draw weapons 
+			if (this.drawWeapon) {
+				for(let id in Mine.list) {
+					this.setTransform(); 
+					Mine.list[id].draw(this.scale, this.size, this.myPosition); 
+				}
 			}
 		}
 		onClick(position) {
@@ -358,8 +396,8 @@
 			myStatusBar = new StatusBar({x:100, y:0}, myStatus); 
 			myStatusBar.bars.push(new SpeedBar({x:myStatusBar.position.x, y:myStatusBar.position.y+350}, myStatusBar.status)); 
 			enemyStatusBar = new StatusBar({x:700, y:0}, enemyStatus); 
-			mainMap = new MapComponent({x:200, y:0}, {width:500, height:500}, data.myShip, 1/10, '#AED6F1', 'detailed', 'centered', 10, true, false); 
-			miniMap = new MapComponent({x:200, y:0}, undefined, data.myShip, 1/100, 'black', 'dummy', 'whole', 0, false, undefined); 
+			mainMap = new MapComponent({x:200, y:0}, {width:500, height:500}, data.myShip, 1/10, '#AED6F1', 'detailed', 'centered', 10, true, true); 
+			miniMap = new MapComponent({x:200, y:0}, undefined, data.myShip, 1/100, 'black', 'dummy', 'whole', 0, false, false); 
 			gameDiv.style.display = 'inline-block'; 
 		} 
 		else {alert(data.msg); }
@@ -370,11 +408,14 @@
 		// data is composed of: 
 		// a dictionary detectedShipList, with entries name:{position: {x, y}, bearing, components} 
 		// a dictionary myShip = {currentSpeedFrac, currentRudderFrac} 
+		// a dictionary enemyShip = {name} 
 		
 		// update 
 		myStatus.update(data.myShip.currentSpeedFrac, data.myShip.currentRudderFrac, myStatus.name); 
-		enemyStatus.update(0, 0, data.enemyShip.name); 
-		Ship.updateList(data.detectedShipInfoList); 
+		enemyStatus.update(undefined, undefined, data.enemyShip.name); 
+		Mine.update(data.detectedMineList); 
+		Ship.update(data.detectedShipInfoList); 
+		
 		
 		// draw 
 		for(let i=0; i < CanvasComponent.list.length; i++) {
@@ -420,6 +461,9 @@
 		else if (event.keyCode === 83) {
 			myStatus.speedLevelIndex = Math.max(myStatus.speedLevelIndex - 1, 0)
 			socket.emit('speedChange', myStatus.speedLevels[myStatus.speedLevelIndex]); 
+		} 
+		else if (event.keyCode === 70) {
+			socket.emit('fireSelectedWeapon', myStatus.weapons[myStatus.selectedWeaponIndex]); 
 		} 
 	}; 
 	
