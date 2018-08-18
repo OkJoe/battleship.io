@@ -43,20 +43,19 @@ var physics = {
 
 //Game objects
 class Entity {
-	constructor(x, y, direction, speed) {
+	constructor(position, direction, speed) {
 		this.id = Math.random().toString(); 
-		this.x = x; 
-		this.y = y; 
+		this.position = position; 
 		this.direction = direction; 
 		this.speed = speed; 
 	}
 	updatePosition() {
-		this.x += this.speed*Math.cos(this.direction)/fps; 
-		this.y += this.speed*Math.sin(this.direction)/fps; 
-		if (this.x < 0) {this.x = 0} 
-		else if (this.x > mapInfo.size.x) {this.x = mapInfo.size.x}
-		if (this.y < 0) {this.y = 0} 
-		else if (this.y > mapInfo.size.y) {this.y = mapInfo.size.y}
+		this.position.x += this.speed*Math.cos(this.direction)/fps; 
+		this.position.y += this.speed*Math.sin(this.direction)/fps; 
+		if (this.position.x < 0) {this.position.x = 0} 
+		else if (this.position.x > mapInfo.size.x) {this.position.x = mapInfo.size.x}
+		if (this.position.y < 0) {this.position.y = 0} 
+		else if (this.position.y > mapInfo.size.y) {this.position.y = mapInfo.size.y}
 	}
 	update() {
 		this.updatePosition(); 
@@ -66,14 +65,13 @@ class Entity {
 // Weapons 
 
 class Weapon extends Entity {
-	constructor(x, y, direction, speed, list, owner, timer, destination, attack) {
-		super(x, y, direction, speed); 
+	constructor(position, direction, speed, list, owner, timer, attack) {
+		super(position, direction, speed); 
 		this.resolveIdConflict(list); 
 		list[this.id] = this; 
 		this.list = list; 
 		this.owner = owner; 
 		this.timer = timer; 
-		this.destination = destination; 
 		this.attack = attack; 
 	}
 	resolveIdConflict(list) {
@@ -85,32 +83,29 @@ class Weapon extends Entity {
 			delete this.list[this.id]; 
 		}
 	}
-	updatePosition() {
-		if (this.timer === 0) {
-			this.x = this.destination.x; 
-			this.y = this.destination.y; 
-		}
-		else {
-			super.updatePosition(); 
-		}
-	} 
 	insideSomeShip() {
 		for(let shipName in Ship.list) {
 			// First check if the ship is near 
-			if ((this.x - Ship.list[shipName].x)*(this.x - Ship.list[shipName].x) + (this.y - Ship.list[shipName].y)*(this.y - Ship.list[shipName].y) < physics.nearDistanceSquared) {
+			if ((this.position.x - Ship.list[shipName].position.x)*(this.position.x - Ship.list[shipName].position.x) + (this.position.y - Ship.list[shipName].position.y)*(this.position.y - Ship.list[shipName].position.y) < physics.nearDistanceSquared) {
 				for (let i = 0; i < Ship.list[shipName].components.length; i++) {
-					if (Ship.list[shipName].components[i].isInside(Ship.list[shipName].convertToRelativePos({x:this.x, y:this.y}))) {return true; }
+					if (Ship.list[shipName].components[i].isInside(Ship.list[shipName].convertToRelativePos(this.position))) {return true; }
 				}
 			}
 		}
 		return false; 
 	}
 	isDetonating() {} 
+	isNear(position){
+		if ((this.position.x - position.x)*(this.position.x - position.x) + (this.position.y - position.y)*(this.position.y - position.y) < physics.nearDistanceSquared) {
+			return true; 
+		}
+		return false; 
+	}
 	detonate() {
 		for(let shipName in Ship.list) {
 			// First check if the ship is near 
-			if ((this.x - Ship.list[shipName].x)*(this.x - Ship.list[shipName].x) + (this.y - Ship.list[shipName].y)*(this.y - Ship.list[shipName].y) < physics.nearDistanceSquared) {
-				 Ship.list[shipName].tryHit(this.x, this.y, this.attack); 
+			if (this.isNear(Ship.list[shipName].position)) {
+				Ship.list[shipName].tryHit(this.position, this.attack); 
 			}
 		}
 		delete this.list[this.id]; 
@@ -122,11 +117,16 @@ class Weapon extends Entity {
 			this.detonate(); 
 		}
 	} 
+	static update() {
+		for (let id in this.list) {
+			this.list[id].update(); 
+		}
+	}
 } 
 
 class Mine extends Weapon {
-	constructor(x, y, owner) {
-		super(x, y, undefined, undefined, Mine.list, owner, 100, undefined, 1); 
+	constructor(position, owner) {
+		super(position, undefined, undefined, Mine.list, owner, 25, 1); 
 		this.activationTimer = 5; 
 	} 
 	tick() {
@@ -142,13 +142,28 @@ class Mine extends Weapon {
 		}
 		return false; 
 	} 
-	static update() {
-		for (let mine in Mine.list) {
-			Mine.list[mine].update(); 
-		}
-	}
 }
 Mine.list = {}; 
+
+class Torpedo extends Weapon {
+	constructor(position, direction, owner) {
+		super(position, direction, 1000, Torpedo.list, owner, 10, 2); 
+		this.activationTimer = 1; 
+	} 
+	tick() {
+		super.tick(); 
+		this.activationTimer = Math.max(this.activationTimer - 1/fps, 0); 
+	} 
+	isDetonating() {
+		if (this.activationTimer === 0) {
+			if (this.insideSomeShip()) {
+				return true; 
+			}
+		}
+		return false; 
+	} 
+}
+Torpedo.list = {}; 
 
 //Ship modules and components 
 
@@ -158,16 +173,20 @@ class ShipModule {
 		this.functional = true; 
 		this.owner = owner; 
 	}
+	update() {}
 }
 
 class ShipWeapon extends ShipModule {
 	constructor(owner, position, reload) {
 		super(owner, position); 
 		this.stats = {reload}; 
-		this.reloadCountDown = 0; 
+		this.reloadCountDown = this.stats.reload; 
 	}
 	tick() {
 		if (this.reloadCountDown > 0) {this.reloadCountDown = Math.max(this.reloadCountDown - 1/fps, 0); } 
+	}
+	update() {
+		this.tick(); 
 	}
 	fire() {
 		if (this.reloadCountDown > 0) {
@@ -182,13 +201,27 @@ class ShipWeapon extends ShipModule {
 
 class Minelayer extends ShipWeapon {
 	constructor(owner, position) {
-		super(owner, position, 0); 
+		super(owner, position, 1); 
 		this.type = 'minelayer'; 
 	}
-	fire() {
+	fire(info) {
 		if (super.fire()) {
-			var minePosition = Ship.list[this.owner].convertToAbsolutePos({x:this.position.x, y:this.position.y}); 
-			new Mine(minePosition.x, minePosition.y, this.owner); 
+			new Mine(Ship.list[this.owner].convertToAbsolutePos(this.position), this.owner); 
+		}
+	}
+}
+
+class TorpedoLauncher extends ShipWeapon {
+	constructor(owner, position) {
+		super(owner, position, 2); 
+		this.type = 'torpedolauncher'; 
+		this.multiplicity = 3; 
+	}
+	fire(info) {
+		if (super.fire()) {
+			for (let i = -this.multiplicity + 1; i < this.multiplicity; i += 2) {
+				new Torpedo(Ship.list[this.owner].convertToAbsolutePos(this.position), mod(Ship.list[this.owner].bearing + info.relativeDirection + info.spread*i/Math.max(this.multiplicity - 1, 1), 2 * Math.PI), this.owner); 
+			}
 		}
 	}
 }
@@ -211,15 +244,21 @@ class ShipComponent {// Coordinates are relative to the ship, shape coordinates 
 		}
 		return true; 
 	}
-	tryHit(x, y, attack) {
-		if (this.isInside({x, y})) {
+	tryHit(position, attack) {
+		if (this.isInside(position)) {
 			this.HP = Math.max(this.HP - attack, 0); 
+			console.log(this.HP); 
 		}
 	}
-	fire(type) {
+	update() {
+		for (let i = 0; i < this.modules.length; i++) {
+			this.modules[i].update(); 
+		}
+	}
+	fire(data) {
 		for (let module in this.modules) {
-			if (this.modules[module].type === type) {
-				this.modules[module].fire(); 
+			if (this.modules[module].type === data.type) {
+				this.modules[module].fire(data.info); 
 			}
 		}
 	}
@@ -227,7 +266,7 @@ class ShipComponent {// Coordinates are relative to the ship, shape coordinates 
 
 class Ship extends Entity {
 	constructor(socket) {
-		super(Math.floor(Math.random()*mapInfo.size.x), Math.floor(Math.random()*mapInfo.size.y), Math.random()*2*Math.PI, 0); 
+		super({x:Math.floor(Math.random()*mapInfo.size.x), y:Math.floor(Math.random()*mapInfo.size.y)}, Math.random()*2*Math.PI, 0); 
 		this.name = socket.name; 
 		this.socket = socket; 
 		this.bearing = this.direction; 
@@ -251,6 +290,7 @@ class Ship extends Entity {
 		};
 		this.components = [new ShipComponent({x:50, y:0}, {type:'polygon', vertices:[{x:-50, y:-50}, {x:50, y:0}, {x:-50, y:50}]}), new ShipComponent({x:-50, y:0}, {type:'polygon', vertices:[{x:-50, y:-50}, {x:50, y:-50}, {x:50, y:50}, {x:-50, y:50}]})]; 
 		this.components[1].modules.push(new Minelayer(this.name, {x:-50, y:0})); 
+		this.components[1].modules.push(new TorpedoLauncher(this.name, {x:-50, y:0})); 
 		this.enemyName = undefined; 
 		Ship.list[this.name] = this; 
 	}
@@ -294,15 +334,15 @@ class Ship extends Entity {
 		this.updatePosition(); 
 		this.updateDirection(); 
 		this.updateVelocityDirection(); 
+		for (let i = 0; i < this.components.length; i++) {
+			this.components[i].update(); 
+		}
 	}
 	sendInfoToClient() {
 		var detectedShipInfoList = {}; 
 		for(let name in Ship.list){
 			detectedShipInfoList[name] = {
-				position:{
-					x:Ship.list[name].x, 
-					y:Ship.list[name].y
-				}, 
+				position:Ship.list[name].position, 
 				bearing:Ship.list[name].bearing, 
 				components:Ship.list[name].components
 			}; 
@@ -310,15 +350,22 @@ class Ship extends Entity {
 		var detectedMineList = {}; 
 		for(let id in Mine.list){
 			detectedMineList[id] = {
-				position:{
-					x:Mine.list[id].x, 
-					y:Mine.list[id].y
-				}, 
+				position:Mine.list[id].position, 
+				activated:(Mine.list[id].activationTimer === 0)
+			}; 
+		} 
+		var detectedTorpedoList = {}; 
+		for(let id in Torpedo.list){
+			detectedTorpedoList[id] = {
+				position:Torpedo.list[id].position, 
+				activated:(Torpedo.list[id].activationTimer === 0), 
+				direction:Torpedo.list[id].direction
 			}; 
 		} 
 		var msgToSend = {
 			detectedShipInfoList, 
 			detectedMineList, 
+			detectedTorpedoList, 
 			myShip:	{
 				currentSpeedFrac: this.speed/this.stats.maxSpeed, 
 				currentRudderFrac: this.turnCurv/this.stats.rudderRange
@@ -337,31 +384,33 @@ class Ship extends Entity {
 	} 
 	convertToRelativePos(position) {
 		return {
-			x:Math.cos(this.bearing) * (position.x - this.x) + Math.sin(this.bearing) * (position.y - this.y), 
-			y:- Math.sin(this.bearing) * (position.x - this.x) + Math.cos(this.bearing) * (position.y - this.y)
+			x:Math.cos(this.bearing) * (position.x - this.position.x) + Math.sin(this.bearing) * (position.y - this.position.y), 
+			y:- Math.sin(this.bearing) * (position.x - this.position.x) + Math.cos(this.bearing) * (position.y - this.position.y)
 		}; 
 	}
 	convertToAbsolutePos(relativePosition) {
 		return {
-			x:Math.cos(this.bearing) * (relativePosition.x) - Math.sin(this.bearing) * (relativePosition.y) + this.x, 
-			y:Math.sin(this.bearing) * (relativePosition.x) + Math.cos(this.bearing) * (relativePosition.y) + this.y
+			x:Math.cos(this.bearing) * (relativePosition.x) - Math.sin(this.bearing) * (relativePosition.y) + this.position.x, 
+			y:Math.sin(this.bearing) * (relativePosition.x) + Math.cos(this.bearing) * (relativePosition.y) + this.position.y
 		}; 
 	}
-	tryHit(x, y, attack) {
-		var relativePosition = this.convertToRelativePos({x, y}); 
+	tryHit(position, attack) {
+		var relativePosition = this.convertToRelativePos(position); 
 		for (let i = 0; i < this.components.length; i++) {
-			this.components[i].tryHit(relativePosition.x, relativePosition.y, attack); 
+			this.components[i].tryHit(relativePosition, attack); 
 		} 
 	} 
-	fire(type) {
+	fire(data) {
 		for (let i = 0; i < this.components.length; i++) {
-			this.components[i].fire(type); 
+			this.components[i].fire(data); 
 		}
 	}
 	static update() {
 		for (let name in Ship.list) {
 			Ship.list[name].update(); 
 		}
+	}
+	static sendInfoToClient() {
 		for (let name in Ship.list) {
 			Ship.list[name].sendInfoToClient(); 
 		}
@@ -374,6 +423,11 @@ class Ship extends Entity {
 	}
 	static removeShip(name) {
 		delete Ship.list[name]; 
+		for (let shipName in Ship.list) {
+			if (Ship.list[shipName].enemyName === name) {
+				Ship.list[shipName].enemyName = undefined; 
+			}
+		}
 		console.log('Ship ' + name + ' disconnected and removed'); 
 	}
 }; 
@@ -410,7 +464,12 @@ io.sockets.on('connection', socket => {
 	
 	socket.on('selectEnemy', data => {
 		if (socket.name in Ship.list) {
-			Ship.list[socket.name].enemyName = data; 
+			if (data) {
+				Ship.list[socket.name].enemyName = data; 
+			}
+			else {
+				Ship.list[socket.name].enemyName = undefined; 
+			}
 		}
 	}); 
 	
@@ -424,7 +483,9 @@ io.sockets.on('connection', socket => {
 
 setInterval(function(){
 	
+	Ship.update(); 
 	Mine.update(); 
-	Ship.update(); // Handles updating ship status and emits packages to client 
+	Torpedo.update(); 
+	Ship.sendInfoToClient(); 
 
 }, 1000/fps);
