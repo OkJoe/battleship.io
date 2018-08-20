@@ -82,7 +82,7 @@ class Weapon extends Entity {
 		if (this.timer <= 0) {
 			delete this.list[this.id]; 
 		}
-	}
+	} // tick the timer, delete if timeout 
 	insideSomeShip() {
 		for(let shipName in Ship.list) {
 			// First check if the ship is near 
@@ -108,7 +108,6 @@ class Weapon extends Entity {
 				Ship.list[shipName].tryHit(this.position, this.attack); 
 			}
 		}
-		delete this.list[this.id]; 
 	}
 	update() {
 		this.tick(); 
@@ -142,6 +141,10 @@ class Mine extends Weapon {
 		}
 		return false; 
 	} 
+	detonate() {
+		super.detonate(); 
+		delete this.list[this.id]; 
+	}
 }
 Mine.list = {}; 
 
@@ -162,23 +165,60 @@ class Torpedo extends Weapon {
 		}
 		return false; 
 	} 
+	detonate() {
+		super.detonate(); 
+		delete this.list[this.id]; 
+	}
 }
 Torpedo.list = {}; 
+
+class Shell extends Weapon {
+	constructor(position, owner, destination) {
+		super(position, undefined, 10000, Shell.list, owner, 0, 2); 
+		this.destination = destination; 
+		this.activated = true; 
+	} 
+	tick() {
+		this.timer = this.timer - 1/fps; 
+		if (this.timer <= -3) {
+			delete this.list[this.id]; 
+		} 
+	} 
+	updatePosition() {
+		if (this.timer <= 0) {
+			this.position = this.destination; 
+		} 
+		else {
+			this.position.x += this.speed*Math.cos(this.direction)/fps; 
+			this.position.y += this.speed*Math.sin(this.direction)/fps; 
+		}
+	}
+	update() {
+		this.tick(); 
+		this.updatePosition(); 
+		if (this.timer <= 0 && this.activated) {
+			this.detonate(); 
+			this.activated = false; 
+		}
+	} 
+}
+Shell.list = {}; 
 
 //Ship modules and components 
 
 class ShipModule {
-	constructor(owner, position) {
+	constructor(owner, position, componentId) {
 		this.position = position; 
 		this.functional = true; 
 		this.owner = owner; 
+		this.componentId = componentId; 
 	}
 	update() {}
 }
 
 class ShipWeapon extends ShipModule {
-	constructor(owner, position, reload) {
-		super(owner, position); 
+	constructor(owner, position, componentId, reload) {
+		super(owner, position, componentId); 
 		this.stats = {reload}; 
 		this.reloadCountDown = this.stats.reload; 
 	}
@@ -200,8 +240,8 @@ class ShipWeapon extends ShipModule {
 }
 
 class Minelayer extends ShipWeapon {
-	constructor(owner, position) {
-		super(owner, position, 1); 
+	constructor(owner, position, componentId) {
+		super(owner, position, componentId, 1); 
 		this.type = 'minelayer'; 
 	}
 	fire(info) {
@@ -212,15 +252,32 @@ class Minelayer extends ShipWeapon {
 }
 
 class TorpedoLauncher extends ShipWeapon {
-	constructor(owner, position) {
-		super(owner, position, 2); 
+	constructor(owner, position, componentId) {
+		super(owner, position, componentId, 2); 
 		this.type = 'torpedolauncher'; 
 		this.multiplicity = 3; 
 	}
 	fire(info) {
+		if (info.componentId === this.componentId) {
 		if (super.fire()) {
 			for (let i = -this.multiplicity + 1; i < this.multiplicity; i += 2) {
 				new Torpedo(Ship.list[this.owner].convertToAbsolutePos(this.position), mod(Ship.list[this.owner].bearing + info.relativeDirection + info.spread*i/Math.max(this.multiplicity - 1, 1), 2 * Math.PI), this.owner); 
+			}
+		}
+		}
+	}
+}
+
+class Gun extends ShipWeapon {
+	constructor(owner, position, componentId) {
+		super(owner, position, componentId, 2); 
+		this.type = 'gun'; 
+		this.multiplicity = 1; 
+	}
+	fire(info) {
+		if (super.fire()) {
+			for (let i = 0; i < this.multiplicity; i++) {
+				new Shell(Ship.list[this.owner].convertToAbsolutePos(this.position), this.owner, info); 
 			}
 		}
 	}
@@ -288,9 +345,16 @@ class Ship extends Entity {
 			}, 
 			speedLevelCurrent: 'stop', 
 		};
-		this.components = [new ShipComponent({x:50, y:0}, {type:'polygon', vertices:[{x:-50, y:-50}, {x:50, y:0}, {x:-50, y:50}]}), new ShipComponent({x:-50, y:0}, {type:'polygon', vertices:[{x:-50, y:-50}, {x:50, y:-50}, {x:50, y:50}, {x:-50, y:50}]})]; 
-		this.components[1].modules.push(new Minelayer(this.name, {x:-50, y:0})); 
-		this.components[1].modules.push(new TorpedoLauncher(this.name, {x:-50, y:0})); 
+		this.components = [
+			new ShipComponent({x:50, y:0}, {type:'polygon', vertices:[{x:-50, y:-50}, {x:50, y:0}, {x:-50, y:50}]}), 
+			new ShipComponent({x:-50, y:0}, {type:'polygon', vertices:[{x:-50, y:-50}, {x:50, y:-50}, {x:50, y:50}, {x:-50, y:50}]}), 
+			new ShipComponent({x:-150, y:0}, {type:'polygon', vertices:[{x:-50, y:-50}, {x:50, y:-50}, {x:50, y:50}, {x:-50, y:50}]}), 
+			new ShipComponent({x:-250, y:0}, {type:'polygon', vertices:[{x:-50, y:-50}, {x:50, y:-50}, {x:50, y:50}, {x:-50, y:50}]})
+		]; 
+		this.components[1].modules.push(new Minelayer(this.name, {x:-50, y:0}, 1)); 
+		this.components[1].modules.push(new TorpedoLauncher(this.name, {x:-50, y:0}, 1)); 
+		this.components[2].modules.push(new Gun(this.name, {x:-150, y:0}, 2)); 
+		this.components[3].modules.push(new TorpedoLauncher(this.name, {x:-250, y:0}, 3)); 
 		this.enemyName = undefined; 
 		Ship.list[this.name] = this; 
 	}
@@ -351,21 +415,29 @@ class Ship extends Entity {
 		for(let id in Mine.list){
 			detectedMineList[id] = {
 				position:Mine.list[id].position, 
-				activated:(Mine.list[id].activationTimer === 0)
+				activationTimer:Mine.list[id].activationTimer
 			}; 
 		} 
 		var detectedTorpedoList = {}; 
 		for(let id in Torpedo.list){
 			detectedTorpedoList[id] = {
 				position:Torpedo.list[id].position, 
-				activated:(Torpedo.list[id].activationTimer === 0), 
+				activationTimer:Torpedo.list[id].activationTimer, 
 				direction:Torpedo.list[id].direction
+			}; 
+		} 
+		var detectedShellList = {}; 
+		for(let id in Shell.list){
+			detectedShellList[id] = {
+				position:Shell.list[id].position, 
+				activationTimer:Shell.list[id].timer
 			}; 
 		} 
 		var msgToSend = {
 			detectedShipInfoList, 
 			detectedMineList, 
 			detectedTorpedoList, 
+			detectedShellList, 
 			myShip:	{
 				currentSpeedFrac: this.speed/this.stats.maxSpeed, 
 				currentRudderFrac: this.turnCurv/this.stats.rudderRange
@@ -419,7 +491,7 @@ class Ship extends Entity {
 		Object.defineProperty(socket, 'name', {value:name}); 
 		new Ship(socket); 
 		console.log('New ship ' + name + ' added'); 
-		socket.emit('signUpResponse', {success:true, myShip:{name, position:Ship.list[name].position}, mapInfo}); 
+		socket.emit('signUpResponse', {success:true, myShip:{name, position:Ship.list[name].position, components: Ship.list[name].components}, mapInfo}); 
 	}
 	static removeShip(name) {
 		delete Ship.list[name]; 
@@ -483,6 +555,7 @@ io.sockets.on('connection', socket => {
 
 setInterval(function(){
 	
+	Shell.update(); 
 	Ship.update(); 
 	Mine.update(); 
 	Torpedo.update(); 
