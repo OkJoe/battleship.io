@@ -69,10 +69,12 @@
 			this.aimDirection = 0; 
 			this.torpedoSpread = 'narrow'; 
 			this.selectedTorpedoLauncherComponentId = 0; 
+			this.levels = undefined; 
 		}
-		update(currentSpeedFrac, currentRudderFrac) {
-			this.currentSpeedFrac = currentSpeedFrac; 
-			this.currentRudderFrac = currentRudderFrac; 
+		update(shipData) {
+			this.currentSpeedFrac = shipData.currentSpeedFrac; 
+			this.currentRudderFrac = shipData.currentRudderFrac; 
+			this.levels = shipData.levels; 
 		} 
 		findNextTorpedoLauncher() {
 			if (this.name in Ship.list) {
@@ -197,15 +199,17 @@
 	Shell.list = {}; 
 	
 	class Ship extends Entity {
-		constructor(name, position, bearing, components) {
+		constructor(name, position, bearing, components, size) {
 			super(position, bearing); 
 			this.components = components; 
 			this.name = name; // Maybe delete this 
+			this.size = size; 
 		}
-		update(position, bearing, components) {
+		update(position, bearing, components, size) {
 			this.position = position; 
 			this.bearing = bearing; 
 			this.components = components; 
+			this.size = size; 
 		}
 		draw(scale, displayType, scopeType, displayFrameSize, myPosition, drawingMe, showName, bearingAhead, showDmg) {
 			var drawShip = true; 
@@ -257,7 +261,7 @@
 							ctx.transform(1, 0, 0, 1, -this.components[i].position.x, -this.components[i].position.y); 
 						} 
 						for (let j = 0; j < this.components[i].modules.length; j++) {
-							drawModule[this.components[i].modules[j].type](this.components[i].position, myStatus.aimDirection, this.components[i].modules[j].multiplicity); 
+							drawModule[this.components[i].modules[j].type](this.components[i].position, myStatus.aimDirection); 
 						}
 					}
 				}
@@ -276,10 +280,10 @@
 			}
 			for(let shipName in newShipList) {
 				if (shipName in Ship.list) {
-					Ship.list[shipName].update(newShipList[shipName].position, newShipList[shipName].bearing, newShipList[shipName].components); 
+					Ship.list[shipName].update(newShipList[shipName].position, newShipList[shipName].bearing, newShipList[shipName].components, newShipList[shipName].size); 
 				}
 				else {
-					var ship = new Ship(shipName, newShipList[shipName].position, newShipList[shipName].bearing, newShipList[shipName].components); 
+					var ship = new Ship(shipName, newShipList[shipName].position, newShipList[shipName].bearing, newShipList[shipName].components, newShipList[shipName].size); 
 					Ship.list[shipName] = ship; 
 				}
 			}
@@ -290,8 +294,8 @@
 	//Canvas objects 
 	
 	var drawModule = {
-		gun: function(position, direction, multiplicity) {
-			var size = 40; 
+		gun: function(position, direction, size = Ship.list[myStatus.name].size*0.4) {
+			var multiplicity = myStatus.levels.gunmult; 
 			ctx.transform(Math.cos(direction), Math.sin(direction), -Math.sin(direction), Math.cos(direction), position.x, position.y); 
 			ctx.fillStyle = 'yellow'; 
 			ctx.beginPath(); 
@@ -309,8 +313,8 @@
 			ctx.transform(Math.cos(direction), -Math.sin(direction), Math.sin(direction), Math.cos(direction), 0, 0); 
 			ctx.transform(1, 0, 0, 1, -position.x, -position.y); 
 		}, 
-		torpedolauncher: function(position, direction, multiplicity) {
-			var size = 40; 
+		torpedolauncher: function(position, direction, size = Ship.list[myStatus.name].size*0.4) {
+			var multiplicity = myStatus.levels.torpmult; 
 			ctx.transform(Math.cos(direction), Math.sin(direction), -Math.sin(direction), Math.cos(direction), position.x, position.y); 
 			ctx.fillStyle = 'blue'; 
 			ctx.beginPath(); 
@@ -330,12 +334,13 @@
 			ctx.transform(1, 0, 0, 1, -position.x, -position.y); 
 		}, 
 		minelayer: function(){}, 
+		engine: function(){}, 
 		showAll: {
-			gun: function(multiplicity) {
-				drawModule.gun({x:0, y:0}, Math.PI/2, multiplicity); 
+			gun: function() {
+				drawModule.gun({x:0, y:0}, Math.PI/2, 40); 
 			}, 
-			torpedolauncher: function(multiplicity) {
-				drawModule.torpedolauncher({x:0, y:0}, Math.PI/2, multiplicity); 
+			torpedolauncher: function() {
+				drawModule.torpedolauncher({x:0, y:0}, Math.PI/2, 40); 
 			}, 
 			minelayer: function() {
 				var size = 40; 
@@ -350,6 +355,17 @@
 				ctx.arc(0, size*1.5, size, Math.PI*4/3, Math.PI*5/3); 
 				ctx.closePath(); 
 				ctx.fill(); 
+			}, 
+			engine: function() {
+				var size = 40; 
+				ctx.fillStyle = 'white'; 
+				var drawLobe = function (angle) {
+					ctx.beginPath(); 
+					ctx.arc(Math.cos(angle)*size*2/3, Math.sin(angle)*size*2/3, size*0.6, angle-0.1, Math.PI+angle-0.1); 
+					ctx.closePath(); 
+					ctx.fill(); 
+				}; 
+				[Math.PI/6, Math.PI*5/6, Math.PI*9/6].map(angle => drawLobe(angle)); 
 			}
 		}
 	}; 
@@ -463,11 +479,11 @@
 				}
 				ctx.beginPath();
 				ctx.moveTo(this.myPosition.x + torpCpntPos.x, this.myPosition.y + torpCpntPos.y); 
-				ctx.lineTo(this.myPosition.x + torpCpntPos.x + Math.cos(myStatus.aimDirection + Ship.list[myStatus.name].bearing + myStatus.torpedoSpreadOptions[myStatus.torpedoSpread])*range, this.myPosition.y + torpCpntPos.y + Math.sin(myStatus.aimDirection + Ship.list[myStatus.name].bearing + myStatus.torpedoSpreadOptions[myStatus.torpedoSpread])*range); 
+				ctx.lineTo(this.myPosition.x + torpCpntPos.x + Math.cos(myStatus.aimDirection + Ship.list[myStatus.name].bearing + myStatus.torpedoSpreadOptions[myStatus.torpedoSpread]*(myStatus.levels.torpmult-1)/2)*range, this.myPosition.y + torpCpntPos.y + Math.sin(myStatus.aimDirection + Ship.list[myStatus.name].bearing + myStatus.torpedoSpreadOptions[myStatus.torpedoSpread]*(myStatus.levels.torpmult-1)/2)*range); 
 				ctx.stroke();
 				ctx.beginPath();
 				ctx.moveTo(this.myPosition.x + torpCpntPos.x, this.myPosition.y + torpCpntPos.y); 
-				ctx.lineTo(this.myPosition.x + torpCpntPos.x + Math.cos(myStatus.aimDirection + Ship.list[myStatus.name].bearing - myStatus.torpedoSpreadOptions[myStatus.torpedoSpread])*range, this.myPosition.y + torpCpntPos.y + Math.sin(myStatus.aimDirection + Ship.list[myStatus.name].bearing - myStatus.torpedoSpreadOptions[myStatus.torpedoSpread])*range); 
+				ctx.lineTo(this.myPosition.x + torpCpntPos.x + Math.cos(myStatus.aimDirection + Ship.list[myStatus.name].bearing - myStatus.torpedoSpreadOptions[myStatus.torpedoSpread]*(myStatus.levels.torpmult-1)/2)*range, this.myPosition.y + torpCpntPos.y + Math.sin(myStatus.aimDirection + Ship.list[myStatus.name].bearing - myStatus.torpedoSpreadOptions[myStatus.torpedoSpread]*(myStatus.levels.torpmult-1)/2)*range); 
 				ctx.stroke();
 			}
 			}
@@ -693,12 +709,17 @@
 			ctx.setTransform(this.scale, 0, 0, -this.scale, this.position.x + this.size.width/2, this.position.y + this.size.height/2);
 		}
 		draw() {
+			if ('reloadCountDown' in Ship.list[this.shipName].components[this.componentId].modules[this.id]) {
 			if (Ship.list[this.shipName].components[this.componentId].modules[this.id].reloadCountDown === 0) {
 				this.color = 'green'; 
 			}
 			else {
 				var colorNumber = (Ship.list[this.shipName].components[this.componentId].modules[this.id].reloadCountDown/Ship.list[this.shipName].components[this.componentId].modules[this.id].stats.reload); 
 				this.color = 'rgba(255,255,255,' + colorNumber + ')'; 
+			}
+			}
+			else {
+				this.color = 'green'; 
 			}
 			super.draw(); 
 			drawModule.showAll[Ship.list[this.shipName].components[this.componentId].modules[this.id].type](Ship.list[this.shipName].components[this.componentId].modules[this.id].multiplicity); 
@@ -845,7 +866,7 @@
 		Torpedo.update(data.detectedTorpedoList); 
 		Shell.update(data.detectedShellList); 
 		Ship.update(data.detectedShipInfoList); 
-		myStatus.update(data.myShip.currentSpeedFrac, data.myShip.currentRudderFrac); 
+		myStatus.update(data.myShip); 
 		myStatusBar.update(myStatus.name); 
 		enemyStatusBar.update(data.enemyShip.name); 
 		scope.myShipName = data.enemyShip.name; 
