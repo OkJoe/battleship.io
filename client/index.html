@@ -70,6 +70,7 @@
 			this.torpedoSpread = 'narrow'; 
 			this.selectedTorpedoLauncherComponentId = 0; 
 			this.levels = undefined; 
+			this.selectedComponent = 0; 
 		}
 		update(shipData) {
 			this.currentSpeedFrac = shipData.currentSpeedFrac; 
@@ -503,7 +504,7 @@
 				//draw ships 
 				for(let name in Ship.list) {
 					this.setTransform(); 
-					Ship.list[name].draw(this.scale, this.displayType, this.scopeType, this.size, this.myPosition, (name === this.myShipName), this.showName, false); 
+					Ship.list[name].draw(this.scale, this.displayType, this.scopeType, this.size, this.myPosition, (name === this.myShipName), this.showName, false, true); 
 				}
 			
 				//draw weapons 
@@ -539,17 +540,19 @@
 				positionInMap = {x:positionInMap.x-this.myPosition.x, y:positionInMap.y-this.myPosition.y}; 
 				if (myStatus.weapons[myStatus.selectedWeaponIndex] === 'torpedolauncher') {
 					var torpModNumber = -1; 
-			for (let i = 0; i < Ship.list[this.myShipName].components[myStatus.selectedTorpedoLauncherComponentId].modules.length; i++) {
-				if (Ship.list[this.myShipName].components[myStatus.selectedTorpedoLauncherComponentId].modules[i].type === 'torpedolauncher') {
-					torpModNumber = i; 
-				}
-			}
+					for (let i = 0; i < Ship.list[this.myShipName].components[myStatus.selectedTorpedoLauncherComponentId].modules.length; i++) {
+						if (Ship.list[this.myShipName].components[myStatus.selectedTorpedoLauncherComponentId].modules[i].type === 'torpedolauncher') {
+							torpModNumber = i; 
+						}
+					}
+					if (torpModNumber > -1) {
 					if (Ship.list[myStatus.name].components[myStatus.selectedTorpedoLauncherComponentId].modules[torpModNumber].reloadCountDown > 0) {
 						myStatus.findNextTorpedoLauncher(); 
 					}
 					var torpCpntPos = {x:Ship.list[myStatus.name].components[myStatus.selectedTorpedoLauncherComponentId].position.x, y:Ship.list[myStatus.name].components[myStatus.selectedTorpedoLauncherComponentId].position.y}; 
 					torpCpntPos = {x:torpCpntPos.x*Math.cos(Ship.list[myStatus.name].bearing)-torpCpntPos.y*Math.sin(Ship.list[myStatus.name].bearing), y:torpCpntPos.x*Math.sin(Ship.list[myStatus.name].bearing)+torpCpntPos.y*Math.cos(Ship.list[myStatus.name].bearing)}; 
 					positionInMap = {x:positionInMap.x-torpCpntPos.x, y:positionInMap.y-torpCpntPos.y}; 
+					}
 				}
 				myStatus.aimDirection = mod(Math.atan2(positionInMap.y, positionInMap.x) - Ship.list[myStatus.name].bearing, 2*Math.PI); 
 				/*
@@ -623,17 +626,24 @@
 	
 	class AllUpgrades extends StatusBarItem {
 		constructor(position, status) {
-			super(position, {width:100, height:100}, 'grey', status.name); 
+			super(position, {width:100, height:250}, 'grey', status.name); 
 			this.status = status; 
 			this.bars = {}; 
 			this.bars['upgradeSize'] = new UpgradeBar({x:this.position.x, y:this.position.y+20}, this.status, 'size'); 
-			this.bars['upgradeGunmult'] = new UpgradeBar({x:this.position.x, y:this.position.y+40}, this.status, 'gunmult'); 
-			this.bars['upgradeTorpmult'] = new UpgradeBar({x:this.position.x, y:this.position.y+60}, this.status, 'torpmult'); 
+			this.bars['upgradeArmor'] = new UpgradeBar({x:this.position.x, y:this.position.y+40}, this.status, 'armor'); 
+			this.bars['upgradeGunmult'] = new UpgradeBar({x:this.position.x, y:this.position.y+60}, this.status, 'gunmult'); 
+			this.bars['upgradeTorpmult'] = new UpgradeBar({x:this.position.x, y:this.position.y+80}, this.status, 'torpmult'); 
+			this.bars['addComponent'] = new AddModuleBar({x:this.position.x, y:this.position.y+120}, this.status, 'component'); 
+			this.bars['addEngine'] = new AddModuleBar({x:this.position.x, y:this.position.y+160}, this.status, 'engine'); 
+			this.bars['addGun'] = new AddModuleBar({x:this.position.x, y:this.position.y+180}, this.status, 'gun'); 
+			this.bars['addTorpedolauncher'] = new AddModuleBar({x:this.position.x, y:this.position.y+200}, this.status, 'torpedolauncher'); 
+			this.bars['addMinelayer'] = new AddModuleBar({x:this.position.x, y:this.position.y+220}, this.status, 'minelayer'); 
 		}
 		draw() {
 			super.draw(); 
 			ctx.fillStyle = 'black'; 
-			ctx.fillText('upgrades', 0, 10); 
+			ctx.fillText('upgrades '+this.status.levels.levelPoints, 0, 20); 
+			ctx.fillText('slctd cpnt #'+myStatus.selectedComponent, 0, 140); 
 			for (let bar in this.bars) {
 				this.bars[bar].draw(); 
 			}
@@ -650,11 +660,30 @@
 		draw() {
 			super.draw(); 
 			ctx.fillStyle = 'black'; 
-			ctx.fillText(this.attributeName, 0, this.size.height - 5); 
+			ctx.fillText(this.attributeName + ' ' + myStatus.levels[this.attributeName], 0, this.size.height - 5); 
 		}
 		onClick(position, event) {
 			if (this.isClickingMe(position, event)) {
 				socket.emit('upgrade', this.attributeName); 
+			}
+		}
+	};
+	
+	class AddModuleBar extends StatusBarItem {
+		constructor(position, status, moduleName) {
+			super(position, {width:100, height:20}, 'grey', status.name); 
+			this.status = status; 
+			this.moduleName = moduleName; 
+			CanvasComponent.list.push(this); 
+		}
+		draw() {
+			super.draw(); 
+			ctx.fillStyle = 'black'; 
+			ctx.fillText(this.moduleName, 0, this.size.height - 5); 
+		}
+		onClick(position, event) {
+			if (this.isClickingMe(position, event)) {
+				socket.emit('addModule', {moduleName:this.moduleName, componentId:myStatus.selectedComponent}); 
 			}
 		}
 	};
@@ -773,7 +802,7 @@
 		constructor(position, shipName, id) {
 			super(position, {width: 100, height: 25}, 'grey', shipName); 
 			this.id = id; 
-			this.scale = 1/5; 
+			this.scale = 1/6.25; 
 			this.modules = []; 
 			var currentXwidth = this.size.height; 
 			for (let i = 0; i < Ship.list[shipName].components[id].modules.length; i++) {
@@ -797,6 +826,19 @@
 			for (let i = 0; i < this.modules.length; i++) {
 				this.modules[i].draw(); 
 			}
+			if (!Ship.list[this.shipName].components[this.id].functional) {
+				this.setTransform(); 
+				ctx.strokeStyle="white"; 
+				ctx.lineWidth = 2;
+				ctx.beginPath(); 
+				ctx.moveTo(0, 0); 
+				ctx.lineTo(this.size.width, this.size.height); 
+				ctx.stroke(); 
+				ctx.beginPath(); 
+				ctx.moveTo(this.size.width, 0); 
+				ctx.lineTo(0, this.size.height); 
+				ctx.stroke(); 
+			}
 		}
 	}; // This is a public bar 
 	
@@ -806,8 +848,7 @@
 			this.components = []; 
 		}
 		update(shipName) {
-			if (shipName === this.shipName) {} 
-			else if (shipName === undefined) {this.components = []; }
+			if (shipName === undefined) {this.components = []; }
 			else {
 				super.update(shipName); 
 				this.components = []; 
@@ -854,8 +895,8 @@
 			super(position); 
 			this.shipName = shipName; 
 			this.bars['nameBar'] = new NameBar({x:this.position.x, y:this.position.y}, shipName); 
-			this.bars['shipGraph'] = new ShipGraph({x:this.position.x, y:this.position.y + 20}, shipName); 
-			this.bars['ComponentDetailsBar'] = new ComponentDetailsBar({x:this.position.x, y:this.position.y + 120}, shipName); 
+			//this.bars['shipGraph'] = new ShipGraph({x:this.position.x, y:this.position.y + 20}, shipName); 
+			this.bars['ComponentDetailsBar'] = new ComponentDetailsBar({x:this.position.x, y:this.position.y + 20}, shipName); 
 		}
 		update(shipName) {
 			this.shipName = shipName; 
@@ -956,10 +997,15 @@
 			myStatus.speedLevelIndex = Math.max(myStatus.speedLevelIndex - 1, 0)
 			socket.emit('speedChange', myStatus.speedLevels[myStatus.speedLevelIndex]); 
 		} 
-		else if (event.keyCode > 48 && event.keyCode < 48 + myStatus.weapons.length) {
+		else if (event.keyCode >= 48 && event.keyCode < 58) {
+			if (event.altKey) {
+				myStatus.selectedComponent = event.keyCode - 48; 
+			}
+			else if (event.keyCode > 48 && event.keyCode < 48 + myStatus.weapons.length) {
 			myStatus.selectedWeaponIndex = event.keyCode - 48; 
 			if (myStatus.weapons[event.keyCode - 48] === 'torpedolauncher') {
 				myStatus.findNextTorpedoLauncher(); 
+			}
 			}
 		} 
 		else if (event.keyCode === 32) {

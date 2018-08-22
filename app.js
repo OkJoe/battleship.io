@@ -42,6 +42,7 @@ var physics = {
 	getMaximumSpeed: function(i) {return [0, 350, 400, 460, 520, 600, 650][i]}, 
 	getDecFactor: function(i) {return [0.1, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35][i]}, 
 	getSize: i => [75, 90, 110, 130, 150][i], 
+	getDefense: i => [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4][i]
 }; 
 
 //Game objects
@@ -128,7 +129,7 @@ class Weapon extends Entity {
 
 class Mine extends Weapon {
 	constructor(position, owner) {
-		super(position, undefined, undefined, Mine.list, owner, 25, 1); 
+		super(position, undefined, undefined, Mine.list, owner, 25, 5); 
 		this.activationTimer = 5; 
 	} 
 	tick() {
@@ -153,7 +154,7 @@ Mine.list = {};
 
 class Torpedo extends Weapon {
 	constructor(position, direction, owner) {
-		super(position, direction, 1000, Torpedo.list, owner, 10, 2); 
+		super(position, direction, 1000, Torpedo.list, owner, 10, 5); 
 		this.activationTimer = 1; 
 	} 
 	tick() {
@@ -217,7 +218,6 @@ class ShipModule {
 		this.componentId = componentId; 
 		this.isDominant = isDominant; 
 		this.onlyOnePerShip = onlyOnePerShip; 
-		this.enabled = true; 
 	}
 	update() {}
 }
@@ -243,7 +243,7 @@ class ShipWeapon extends ShipModule {
 		this.tick(); 
 	}
 	fire() {
-		if (this.reloadCountDown > 0) {
+		if (this.reloadCountDown > 0 || !this.functional) {
 			return false; 
 		} 
 		else {
@@ -255,7 +255,7 @@ class ShipWeapon extends ShipModule {
 
 class Minelayer extends ShipWeapon {
 	constructor(owner, position, componentId) {
-		super(owner, position, componentId, 1, true, true); 
+		super(owner, position, componentId, 5, true, true); 
 		this.type = 'minelayer'; 
 	}
 	fire(info) {
@@ -267,7 +267,7 @@ class Minelayer extends ShipWeapon {
 
 class TorpedoLauncher extends ShipWeapon {
 	constructor(owner, position, componentId) {
-		super(owner, position, componentId, 2, true, false); 
+		super(owner, position, componentId, 5, true, false); 
 		this.type = 'torpedolauncher'; 
 	}
 	fire(info) {
@@ -289,10 +289,11 @@ class Gun extends ShipWeapon {
 	fire(info) {
 		if (super.fire()) {
 			for (let i = 0; i < Ship.list[this.owner].levels.gunmult; i++) {
-				var diviation = 200; 
+				var diviation = 0.1; 
+				var distance = Math.sqrt((info.x - Ship.list[this.owner].position.x)*(info.x - Ship.list[this.owner].position.x) + (info.y - Ship.list[this.owner].position.y)*(info.y - Ship.list[this.owner].position.y)); 
 				var destination = {
-					x: info.x + Math.random()*diviation - diviation/2, 
-					y: info.y + Math.random()*diviation - diviation/2
+					x: info.x + (Math.random()*diviation - diviation/2)*distance, 
+					y: info.y + (Math.random()*diviation - diviation/2)*distance
 				}; 
 				new Shell(Ship.list[this.owner].convertToAbsolutePos(this.position), this.owner, destination); 
 			}
@@ -308,13 +309,15 @@ var modules = {
 }; 
 
 class ShipComponent {// Coordinates are relative to the ship, shape coordinates are relative to the element position 
-	constructor(position, shape) {
+	constructor(position, shape, owner) {
 		this.position = position; 
 		this.shape = shape; //example: {type: 'polygon', vertices: [{x, y}, ...]} 
 		//type polygon is always convex, the vertices are listed in an anti-clockwise order 
 		this.modules = []; 
 		this.HP = 5; 
 		this.dominantModule = undefined; 
+		this.owner = owner; 
+		this.functional = true; 
 	}
 	isInside(position) {
 		if (this.shape.type === 'polygon') {
@@ -327,8 +330,13 @@ class ShipComponent {// Coordinates are relative to the ship, shape coordinates 
 		return true; 
 	}
 	tryHit(position, attack) {
-		if (this.isInside(position)) {
-			this.HP = Math.max(this.HP - attack, 0); 
+		if (this.isInside(position) && this.functional) {
+			this.HP = Math.max(this.HP - Math.max(Math.random()*attack - Math.random()*physics.getDefense(Ship.list[this.owner].levels.size+Ship.list[this.owner].levels.armor), 0), 0); 
+			if (this.HP === 0) {
+				this.functional = false; 
+				this.modules.map(module => {module.functional = false; }); 
+				Ship.list[this.owner].updateSpeedInfo(); 
+			}
 		}
 	}
 	update() {
@@ -352,8 +360,8 @@ class Ship extends Entity {
 		this.socket = socket; 
 		this.bearing = this.direction; 
 		this.turnCurv = 0; 
-		this.levelPoints = 10; 
 		this.levels = {
+			levelPoints: 10, 
 			concealment: 0, 
 			detection: 0, 
 			armor: 0, 
@@ -367,9 +375,9 @@ class Ship extends Entity {
 		}; 
 		this.levelUp = {
 			size: function() {
-				if (this.levels.size < 4 && this.levelPoints > 0) {
+				if (this.levels.size < 4 && this.levels.levelPoints > 0) {
 					this.levels.size += 1; 
-					this.levelPoints -= 1; 
+					this.levels.levelPoints -= 1; 
 					this.size = physics.getSize(this.levels.size); 
 					for (let i = 0; i < this.components.length; i++) {
 						this.components[i].position.x *= physics.getSize(this.levels.size)/physics.getSize(this.levels.size-1); 
@@ -381,15 +389,21 @@ class Ship extends Entity {
 				} 
 			}, 
 			gunmult: function() {
-				if (this.levels.gunmult < 4 && this.levelPoints > 1) {
+				if (this.levels.gunmult < 4 && this.levels.levelPoints > 1) {
 					this.levels.gunmult += 1; 
-					this.levelPoints -= 2; 
+					this.levels.levelPoints -= 2; 
 				} 
 			}, 
 			torpmult: function() {
-				if (this.levels.torpmult < 6 && this.levelPoints > 1) {
+				if (this.levels.torpmult < 5 && this.levels.levelPoints > 1) {
 					this.levels.torpmult += 1; 
-					this.levelPoints -= 2; 
+					this.levels.levelPoints -= 2; 
+				} 
+			}, 
+			armor: function() {
+				if (this.levels.armor < 4 && this.levels.levelPoints > 0) {
+					this.levels.armor += 1; 
+					this.levels.levelPoints -= 1; 
 				} 
 			}
 		}; 
@@ -415,8 +429,8 @@ class Ship extends Entity {
 		}; 
 		this.size = 75; 
 		this.components = [
-			new ShipComponent({x:this.size/2, y:0}, {type:'polygon', vertices:[{x:-this.size/2, y:-this.size/2}, {x:this.size/2, y:-this.size/4}, {x:this.size, y:0}, {x:this.size/2, y:this.size/4}, {x:-this.size/2, y:this.size/2}]}), 
-			new ShipComponent({x:-this.size/2, y:0}, {type:'polygon', vertices:[{x:-this.size/2, y:-this.size/4}, {x:-this.size/4, y:-this.size/2}, {x:this.size/2, y:-this.size/2}, {x:this.size/2, y:this.size/2}, {x:-this.size/4, y:this.size/2}, {x:-this.size/2, y:this.size/4}]})
+			new ShipComponent({x:this.size/2, y:0}, {type:'polygon', vertices:[{x:-this.size/2, y:-this.size/2}, {x:this.size/2, y:-this.size/4}, {x:this.size, y:0}, {x:this.size/2, y:this.size/4}, {x:-this.size/2, y:this.size/2}]}, this.name), 
+			new ShipComponent({x:-this.size/2, y:0}, {type:'polygon', vertices:[{x:-this.size/2, y:-this.size/4}, {x:-this.size/4, y:-this.size/2}, {x:this.size/2, y:-this.size/2}, {x:this.size/2, y:this.size/2}, {x:-this.size/4, y:this.size/2}, {x:-this.size/2, y:this.size/4}]}, this.name)
 		]; 
 		this.enemyName = undefined; 
 		this.modules = {
@@ -429,12 +443,10 @@ class Ship extends Entity {
 		}; 
 		Ship.list[this.name] = this; 
 		this.addModule(1, 'engine'); 
-		this.addModule(0, 'gun'); 
-		this.addModule(1, 'torpedolauncher'); 
 	}
 	updateSpeedInfo(engineCreatedButNotYetAdded = false) {
 		var numberOfFunctioningEngines = 0; 
-		this.modules.engine.map(engine => {if (engine.enabled) {numberOfFunctioningEngines++}}); 
+		this.modules.engine.map(engine => {if (engine.functional) {numberOfFunctioningEngines++}}); 
 		if (engineCreatedButNotYetAdded) {
 			numberOfFunctioningEngines++; 
 		}
@@ -442,15 +454,16 @@ class Ship extends Entity {
 		this.stats.decFactor = physics.getDecFactor(numberOfFunctioningEngines); 
 		this.stats.acc = this.stats.maxSpeed*this.stats.decFactor; 
 	}
-	addComponent(i) {// insert after the i'th component 
-		if (this.components.length >= 6) {
+	addComponent(i) {// insert at the i'th component 
+		if (this.components.length >= 6 || i === 0 || i > this.components.length) {
 			return; 
 		}
-		this.components.splice(i + 1, 0, new ShipComponent({x:(this.components.length/2 - i - 1)*this.size, y:0}, {type:'polygon', vertices:[{x:-this.size/2, y:-this.size/2}, {x:this.size/2, y:-this.size/2}, {x:this.size/2, y:this.size/2}, {x:-this.size/2, y:this.size/2}]})); 
-		for (let j = 0; j <= i; j++) {
+		this.levels.levelPoints -= 1; 
+		this.components.splice(i, 0, new ShipComponent({x:(this.components.length/2 - i)*this.size, y:0}, {type:'polygon', vertices:[{x:-this.size/2, y:-this.size/2}, {x:this.size/2, y:-this.size/2}, {x:this.size/2, y:this.size/2}, {x:-this.size/2, y:this.size/2}]}, this.name)); 
+		for (let j = 0; j < i; j++) {
 			this.components[j].position.x += this.size/2; 
 		}
-		for (let j = i + 2; j < this.components.length; j++) {
+		for (let j = i + 1; j < this.components.length; j++) {
 			this.components[j].position.x -= this.size/2; 
 			for (let k = 0; k < this.components[j].modules.length; k++) {
 				this.components[j].modules[k].componentId += 1; 
@@ -458,6 +471,9 @@ class Ship extends Entity {
 		}
 	}
 	addModule(componentId, moduleType) {
+		if (moduleType === 'component') {
+			return this.addComponent(componentId); 
+		}
 		var newModule = new modules[moduleType](this.name, this.components[componentId].position, componentId); 
 		if (newModule.onlyOnePerShip && this.modules[moduleType] !== undefined) {
 			return; 
@@ -471,6 +487,7 @@ class Ship extends Entity {
 			}
 		}
 		this.components[componentId].modules.push(newModule); 
+		this.levels.levelPoints -= 1; 
 		if (newModule.onlyOnePerShip) {
 			this.modules[moduleType] = newModule; 
 		}
@@ -676,6 +693,12 @@ io.sockets.on('connection', socket => {
 	socket.on('upgrade', data => {
 		if (socket.name in Ship.list) {
 			Ship.list[socket.name].levelUp[data](); 
+		}
+	}); 
+	
+	socket.on('addModule', data => {
+		if (socket.name in Ship.list) {
+			Ship.list[socket.name].addModule(data.componentId, data.moduleName); 
 		}
 	}); 
 }); 
