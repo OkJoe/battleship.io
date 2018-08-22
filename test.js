@@ -1,2 +1,8 @@
-var arr = [0, 1, 2, 3, 4]; 
-console.log(arr.map(x => {if (x > 1) {return x}})); 
+var o = {
+	a:1, 
+	b: {
+		c:function() {console.log(this); }
+	}
+}; 
+o.b.c = o.b.c.bind(o); 
+setInterval(o.b.c, 1000);

@@ -273,8 +273,8 @@ class TorpedoLauncher extends ShipWeapon {
 	fire(info) {
 		if (info.componentId === this.componentId) {
 		if (super.fire()) {
-			for (let i = -Ship.list[this.owner].levels.torpmult + 1; i < Ship.list[this.owner].levels.torpmult; i += 2) {
-				new Torpedo(Ship.list[this.owner].convertToAbsolutePos(this.position), mod(Ship.list[this.owner].bearing + info.relativeDirection + info.spread*i/Math.max(Ship.list[this.owner].levels.torpmult - 1, 1), 2 * Math.PI), this.owner); 
+			for (let i = (-Ship.list[this.owner].levels.torpmult + 1)/2; i < Ship.list[this.owner].levels.torpmult/2; i++) {
+				new Torpedo(Ship.list[this.owner].convertToAbsolutePos(this.position), mod(Ship.list[this.owner].bearing + info.relativeDirection + info.spread*i, 2 * Math.PI), this.owner); 
 			}
 		}
 		}
@@ -360,8 +360,8 @@ class Ship extends Entity {
 			size: 0, 
 			shelldmg: 0, 
 			explosivedmg: 0, 
-			gunmult: 3, 
-			torpmult: 3, 
+			gunmult: 1, 
+			torpmult: 1, 
 			ruddershift: 0, 
 			superstructure: 0
 		}; 
@@ -388,10 +388,13 @@ class Ship extends Entity {
 			}, 
 			torpmult: function() {
 				if (this.levels.torpmult < 6 && this.levelPoints > 1) {
-					this.levels.gunmult += 1; 
+					this.levels.torpmult += 1; 
 					this.levelPoints -= 2; 
 				} 
 			}
+		}; 
+		for (let key in this.levelUp) {
+			this.levelUp[key] = this.levelUp[key].bind(this); 
 		}; 
 		this.stats = {
 			maxSpeed: undefined, 
@@ -667,6 +670,12 @@ io.sockets.on('connection', socket => {
 	socket.on('fireSelectedWeapon', data => {
 		if (socket.name in Ship.list) {
 			Ship.list[socket.name].fire(data); 
+		}
+	}); 
+	
+	socket.on('upgrade', data => {
+		if (socket.name in Ship.list) {
+			Ship.list[socket.name].levelUp[data](); 
 		}
 	}); 
 }); 

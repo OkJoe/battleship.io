@@ -621,6 +621,44 @@
 		}
 	}; 
 	
+	class AllUpgrades extends StatusBarItem {
+		constructor(position, status) {
+			super(position, {width:100, height:100}, 'grey', status.name); 
+			this.status = status; 
+			this.bars = {}; 
+			this.bars['upgradeSize'] = new UpgradeBar({x:this.position.x, y:this.position.y+20}, this.status, 'size'); 
+			this.bars['upgradeGunmult'] = new UpgradeBar({x:this.position.x, y:this.position.y+40}, this.status, 'gunmult'); 
+			this.bars['upgradeTorpmult'] = new UpgradeBar({x:this.position.x, y:this.position.y+60}, this.status, 'torpmult'); 
+		}
+		draw() {
+			super.draw(); 
+			ctx.fillStyle = 'black'; 
+			ctx.fillText('upgrades', 0, 10); 
+			for (let bar in this.bars) {
+				this.bars[bar].draw(); 
+			}
+		}
+	};
+	
+	class UpgradeBar extends StatusBarItem {
+		constructor(position, status, attributeName) {
+			super(position, {width:100, height:20}, 'grey', status.name); 
+			this.status = status; 
+			this.attributeName = attributeName; 
+			CanvasComponent.list.push(this); 
+		}
+		draw() {
+			super.draw(); 
+			ctx.fillStyle = 'black'; 
+			ctx.fillText(this.attributeName, 0, this.size.height - 5); 
+		}
+		onClick(position, event) {
+			if (this.isClickingMe(position, event)) {
+				socket.emit('upgrade', this.attributeName); 
+			}
+		}
+	};
+	
 	class SpeedBar extends StatusBarItem {
 		constructor(position, status) {
 			super(position, {width:100, height:100}, 'white', status.name); 
@@ -801,6 +839,7 @@
 			this.status = status; 
 			this.bars['SelectedWeaponBar'] = new SelectedWeaponBar({x:this.position.x, y:this.position.y}, this.status); 
 			this.bars['speedBar'] = new SpeedBar({x:this.position.x, y:this.position.y+350}, this.status); 
+			this.bars['upgrades'] = new AllUpgrades({x:this.position.x, y:this.position.y+40}, this.status); 
 		}
 		draw() {
 			super.draw(); 
