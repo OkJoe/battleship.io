@@ -65,7 +65,7 @@
 			this.name = undefined; 
 			this.weapons = ['???', 'gun', 'torpedolauncher', 'minelayer']; 
 			this.selectedWeaponIndex = 1; 
-			this.torpedoSpreadOptions = {'narrow': 0.07, 'wide': 0.2}; 
+			this.torpedoSpreadOptions = {'narrow': 0.05, 'wide': 0.15}; 
 			this.aimDirection = 0; 
 			this.torpedoSpread = 'narrow'; 
 			this.selectedTorpedoLauncherComponentId = 0; 
@@ -200,17 +200,21 @@
 	Shell.list = {}; 
 	
 	class Ship extends Entity {
-		constructor(name, position, bearing, components, size) {
+		constructor(name, position, bearing, components, size, levels, aimDirection) {
 			super(position, bearing); 
 			this.components = components; 
 			this.name = name; // Maybe delete this 
 			this.size = size; 
+			this.levels = levels; 
+			this.aimDirection = aimDirection; 
 		}
-		update(position, bearing, components, size) {
+		update(position, bearing, components, size, levels, aimDirection) {
 			this.position = position; 
 			this.bearing = bearing; 
 			this.components = components; 
 			this.size = size; 
+			this.levels = levels; 
+			this.aimDirection = aimDirection; 
 		}
 		draw(scale, displayType, scopeType, displayFrameSize, myPosition, drawingMe, showName, bearingAhead, showDmg) {
 			var drawShip = true; 
@@ -248,7 +252,7 @@
 					
 					else {ctx.transform(Math.cos(this.bearing), Math.sin(this.bearing), -Math.sin(this.bearing), Math.cos(this.bearing), 0, 0); } 
 					for (let i = 0; i < this.components.length; i++) {
-						if (showDmg) {ctx.fillStyle = 'rgb(' + Math.floor(255 - this.components[i].HP*255/5) + ', 0, 0)'; }
+						if (showDmg) {ctx.fillStyle = 'rgb(' + Math.floor(255 - this.components[i].HP*255) + ', 0, 0)'; }
 						else {ctx.fillStyle = 'black'; } 
 						if (this.components[i].shape.type === 'polygon') {
 							ctx.transform(1, 0, 0, 1, this.components[i].position.x, this.components[i].position.y); 
@@ -262,7 +266,12 @@
 							ctx.transform(1, 0, 0, 1, -this.components[i].position.x, -this.components[i].position.y); 
 						} 
 						for (let j = 0; j < this.components[i].modules.length; j++) {
-							drawModule[this.components[i].modules[j].type](this.components[i].position, myStatus.aimDirection); 
+							if (this.components[i].modules[j].type === 'gun') {
+								drawModule[this.components[i].modules[j].type](this.components[i].position, this.aimDirection, getSize.gun(this.levels.caliber), this.levels.gunmult); 
+							}
+							else {
+								drawModule[this.components[i].modules[j].type](this.components[i].position, this.aimDirection, 40, this.levels.torpmult); 
+							}
 						}
 					}
 				}
@@ -281,10 +290,10 @@
 			}
 			for(let shipName in newShipList) {
 				if (shipName in Ship.list) {
-					Ship.list[shipName].update(newShipList[shipName].position, newShipList[shipName].bearing, newShipList[shipName].components, newShipList[shipName].size); 
+					Ship.list[shipName].update(newShipList[shipName].position, newShipList[shipName].bearing, newShipList[shipName].components, newShipList[shipName].size, newShipList[shipName].levels, newShipList[shipName].aimDirection); 
 				}
 				else {
-					var ship = new Ship(shipName, newShipList[shipName].position, newShipList[shipName].bearing, newShipList[shipName].components, newShipList[shipName].size); 
+					var ship = new Ship(shipName, newShipList[shipName].position, newShipList[shipName].bearing, newShipList[shipName].components, newShipList[shipName].size, newShipList[shipName].levels, newShipList[shipName].aimDirection); 
 					Ship.list[shipName] = ship; 
 				}
 			}
@@ -294,9 +303,11 @@
 	
 	//Canvas objects 
 	
+	var getSize = {
+		gun: i => [30, 40, 50, 60, 70][i], 
+	}; 
 	var drawModule = {
-		gun: function(position, direction, size = Ship.list[myStatus.name].size*0.4) {
-			var multiplicity = myStatus.levels.gunmult; 
+		gun: function(position, direction, size, multiplicity) {
 			ctx.transform(Math.cos(direction), Math.sin(direction), -Math.sin(direction), Math.cos(direction), position.x, position.y); 
 			ctx.fillStyle = 'yellow'; 
 			ctx.beginPath(); 
@@ -314,8 +325,7 @@
 			ctx.transform(Math.cos(direction), -Math.sin(direction), Math.sin(direction), Math.cos(direction), 0, 0); 
 			ctx.transform(1, 0, 0, 1, -position.x, -position.y); 
 		}, 
-		torpedolauncher: function(position, direction, size = Ship.list[myStatus.name].size*0.4) {
-			var multiplicity = myStatus.levels.torpmult; 
+		torpedolauncher: function(position, direction, size, multiplicity) {
 			ctx.transform(Math.cos(direction), Math.sin(direction), -Math.sin(direction), Math.cos(direction), position.x, position.y); 
 			ctx.fillStyle = 'blue'; 
 			ctx.beginPath(); 
@@ -337,11 +347,11 @@
 		minelayer: function(){}, 
 		engine: function(){}, 
 		showAll: {
-			gun: function() {
-				drawModule.gun({x:0, y:0}, Math.PI/2, 40); 
+			gun: function(multiplicity) {
+				drawModule.gun({x:0, y:0}, Math.PI/2, 40, multiplicity); 
 			}, 
-			torpedolauncher: function() {
-				drawModule.torpedolauncher({x:0, y:0}, Math.PI/2, 40); 
+			torpedolauncher: function(multiplicity) {
+				drawModule.torpedolauncher({x:0, y:0}, Math.PI/2, 40, multiplicity); 
 			}, 
 			minelayer: function() {
 				var size = 40; 
@@ -537,7 +547,7 @@
 		onHover() {
 			if (this.isClickingMe(LMBStatus.position) && this.displayType === 'detailed') {
 				var positionInMap = this.cvtFromCvsToMap(LMBStatus.position); 
-				positionInMap = {x:positionInMap.x-this.myPosition.x, y:positionInMap.y-this.myPosition.y}; 
+				positionInMap = {x:positionInMap.x-Ship.list[myStatus.name].position.x, y:positionInMap.y-Ship.list[myStatus.name].position.y}; 
 				if (myStatus.weapons[myStatus.selectedWeaponIndex] === 'torpedolauncher') {
 					var torpModNumber = -1; 
 					for (let i = 0; i < Ship.list[this.myShipName].components[myStatus.selectedTorpedoLauncherComponentId].modules.length; i++) {
@@ -626,24 +636,26 @@
 	
 	class AllUpgrades extends StatusBarItem {
 		constructor(position, status) {
-			super(position, {width:100, height:250}, 'grey', status.name); 
+			super(position, {width:100, height:260}, 'grey', status.name); 
 			this.status = status; 
 			this.bars = {}; 
-			this.bars['upgradeSize'] = new UpgradeBar({x:this.position.x, y:this.position.y+20}, this.status, 'size'); 
-			this.bars['upgradeArmor'] = new UpgradeBar({x:this.position.x, y:this.position.y+40}, this.status, 'armor'); 
-			this.bars['upgradeGunmult'] = new UpgradeBar({x:this.position.x, y:this.position.y+60}, this.status, 'gunmult'); 
-			this.bars['upgradeTorpmult'] = new UpgradeBar({x:this.position.x, y:this.position.y+80}, this.status, 'torpmult'); 
-			this.bars['addComponent'] = new AddModuleBar({x:this.position.x, y:this.position.y+120}, this.status, 'component'); 
-			this.bars['addEngine'] = new AddModuleBar({x:this.position.x, y:this.position.y+160}, this.status, 'engine'); 
-			this.bars['addGun'] = new AddModuleBar({x:this.position.x, y:this.position.y+180}, this.status, 'gun'); 
-			this.bars['addTorpedolauncher'] = new AddModuleBar({x:this.position.x, y:this.position.y+200}, this.status, 'torpedolauncher'); 
-			this.bars['addMinelayer'] = new AddModuleBar({x:this.position.x, y:this.position.y+220}, this.status, 'minelayer'); 
+			this.bars['upgradeSize'] = new UpgradeBar({x:this.position.x, y:this.position.y+40}, this.status, 'size'); 
+			this.bars['upgradeArmor'] = new UpgradeBar({x:this.position.x, y:this.position.y+60}, this.status, 'armor'); 
+			this.bars['upgradeGunmult'] = new UpgradeBar({x:this.position.x, y:this.position.y+80}, this.status, 'gunmult'); 
+			this.bars['upgradeTorpmult'] = new UpgradeBar({x:this.position.x, y:this.position.y+100}, this.status, 'torpmult'); 
+			this.bars['upgradeCaliber'] = new UpgradeBar({x:this.position.x, y:this.position.y+120}, this.status, 'caliber'); 
+			this.bars['upgradeExplosive'] = new UpgradeBar({x:this.position.x, y:this.position.y+140}, this.status, 'explosive'); 
+			this.bars['addComponent'] = new AddModuleBar({x:this.position.x, y:this.position.y+160}, this.status, 'component'); 
+			this.bars['addEngine'] = new AddModuleBar({x:this.position.x, y:this.position.y+180}, this.status, 'engine'); 
+			this.bars['addGun'] = new AddModuleBar({x:this.position.x, y:this.position.y+200}, this.status, 'gun'); 
+			this.bars['addTorpedolauncher'] = new AddModuleBar({x:this.position.x, y:this.position.y+220}, this.status, 'torpedolauncher'); 
+			this.bars['addMinelayer'] = new AddModuleBar({x:this.position.x, y:this.position.y+240}, this.status, 'minelayer'); 
 		}
 		draw() {
 			super.draw(); 
 			ctx.fillStyle = 'black'; 
-			ctx.fillText('upgrades '+this.status.levels.levelPoints, 0, 20); 
-			ctx.fillText('slctd cpnt #'+myStatus.selectedComponent, 0, 140); 
+			ctx.fillText('upgrade pts '+this.status.levels.levelPoints, 0, 10); 
+			ctx.fillText('slctd cpnt #'+myStatus.selectedComponent, 0, 30); 
 			for (let bar in this.bars) {
 				this.bars[bar].draw(); 
 			}
@@ -750,7 +762,7 @@
 		}
 	}; // This is a public bar 
 	
-	class ShipGraph extends StatusBarItem {
+	/*class ShipGraph extends StatusBarItem {
 		constructor(position, shipName) {
 			super(position, {width: 100, height: 100}, 'grey', shipName); 
 			this.scale = 0.2; 
@@ -763,7 +775,7 @@
 			super.draw(); 
 			Ship.list[this.shipName].draw(this.scale, 'detailed', undefined, undefined, undefined, undefined, false, true, true); 
 		}
-	}; // This is a public bar 
+	}; // This is a public bar */
 	
 	class ModuleBar extends StatusBarItem {
 		constructor(position, shipName, componentId, id) {
@@ -789,7 +801,8 @@
 				this.color = 'green'; 
 			}
 			super.draw(); 
-			drawModule.showAll[Ship.list[this.shipName].components[this.componentId].modules[this.id].type](Ship.list[this.shipName].components[this.componentId].modules[this.id].multiplicity); 
+			var mult = {'gun':'gunmult', 'torpedolauncher':'torpmult'}; 
+			drawModule.showAll[Ship.list[this.shipName].components[this.componentId].modules[this.id].type]((Ship.list[this.shipName].components[this.componentId].modules[this.id].type in mult) ? Ship.list[this.shipName].levels[mult[Ship.list[this.shipName].components[this.componentId].modules[this.id].type]]:undefined); 
 			if (Ship.list[this.shipName].components[this.componentId].modules[this.id].reloadCountDown > 0) {
 				ctx.setTransform(1, 0, 0, 1, this.position.x, this.position.y + this.size.height); 
 				ctx.fillStyle = 'black'; 
@@ -813,7 +826,7 @@
 		draw() {
 			super.draw(); 
 			ctx.transform(0, -this.scale, this.scale, 0, this.size.height/2, this.size.height/2); 
-			ctx.fillStyle = 'rgb(' + Math.floor(255 - Ship.list[this.shipName].components[this.id].HP*255/5) + ', 0, 0)'; 
+			ctx.fillStyle = 'rgb(' + Math.floor(255 - Ship.list[this.shipName].components[this.id].HP*255) + ', 0, 0)'; 
 			if (Ship.list[this.shipName].components[this.id].shape.type === 'polygon') {
 				ctx.beginPath();
 				ctx.moveTo(Ship.list[this.shipName].components[this.id].shape.vertices[0].x, Ship.list[this.shipName].components[this.id].shape.vertices[0].y); 
@@ -896,7 +909,7 @@
 			this.shipName = shipName; 
 			this.bars['nameBar'] = new NameBar({x:this.position.x, y:this.position.y}, shipName); 
 			//this.bars['shipGraph'] = new ShipGraph({x:this.position.x, y:this.position.y + 20}, shipName); 
-			this.bars['ComponentDetailsBar'] = new ComponentDetailsBar({x:this.position.x, y:this.position.y + 20}, shipName); 
+			this.bars['ComponentDetailsBar'] = new ComponentDetailsBar({x:this.position.x, y:this.position.y + 50}, shipName); 
 		}
 		update(shipName) {
 			this.shipName = shipName; 
@@ -925,7 +938,7 @@
 			myStatus.name = data.myShip.name; 
 			mainMap = new MapComponent({x:200, y:0}, {width:500, height:500}, data.myShip.name, 1/10, '#AED6F1', 'detailed', 'centered', 10, true, true); 
 			miniMap = new MapComponent({x:200, y:0}, undefined, data.myShip.name, 1/100, 'black', 'dummy', 'whole', 0, false, false); 
-			scope = new MapComponent({x:800, y:0}, {width:200, height:200}, undefined, 1/5, 'white', 'detailed', 'centered', 10, false, false)
+			scope = new MapComponent({x:800, y:0}, {width:200, height:200}, undefined, 1/5, '#AED6F1', 'detailed', 'centered', 10, false, true); 
 			privateStatusBar = new PrivateStatusBar({x:0, y:0}, myStatus); 
 			myStatusBar = new PublicStatusBar({x:100, y:0}, data.myShip.name); 
 			enemyStatusBar = new PublicStatusBar({x:700, y:0}, undefined); 
@@ -940,6 +953,8 @@
 		// a dictionary detectedShipList, with entries name:{position: {x, y}, bearing, components} 
 		// a dictionary myShip = {currentSpeedFrac, currentRudderFrac} 
 		// a dictionary enemyShip = {name} 
+		
+		socket.emit('aimDirection', myStatus.aimDirection); 
 		
 		// update 
 		Mine.update(data.detectedMineList); 

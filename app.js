@@ -42,7 +42,9 @@ var physics = {
 	getMaximumSpeed: function(i) {return [0, 350, 400, 460, 520, 600, 650][i]}, 
 	getDecFactor: function(i) {return [0.1, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35][i]}, 
 	getSize: i => [75, 90, 110, 130, 150][i], 
-	getDefense: i => [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4][i]
+	getDefense: i => [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8][i], 
+	getAttackCaliber: i => [0.3, 0.36, 0.43, 0.51, 0.6][i], 
+	getAttackExplosive: i => [0.6, 0.7, 0.85, 1, 1.2][i]
 }; 
 
 //Game objects
@@ -128,8 +130,8 @@ class Weapon extends Entity {
 } 
 
 class Mine extends Weapon {
-	constructor(position, owner) {
-		super(position, undefined, undefined, Mine.list, owner, 25, 5); 
+	constructor(position, owner, attack) {
+		super(position, undefined, undefined, Mine.list, owner, 25, attack); 
 		this.activationTimer = 5; 
 	} 
 	tick() {
@@ -153,9 +155,9 @@ class Mine extends Weapon {
 Mine.list = {}; 
 
 class Torpedo extends Weapon {
-	constructor(position, direction, owner) {
-		super(position, direction, 1000, Torpedo.list, owner, 10, 5); 
-		this.activationTimer = 1; 
+	constructor(position, direction, owner, attack) {
+		super(position, direction, 700, Torpedo.list, owner, 10, attack); 
+		this.activationTimer = 0.5; 
 	} 
 	tick() {
 		super.tick(); 
@@ -177,8 +179,8 @@ class Torpedo extends Weapon {
 Torpedo.list = {}; 
 
 class Shell extends Weapon {
-	constructor(position, owner, destination) {
-		super(position, undefined, 10000, Shell.list, owner, 0, 2); 
+	constructor(position, owner, destination, attack) {
+		super(position, undefined, 10000, Shell.list, owner, 0, attack); 
 		this.destination = destination; 
 		this.activated = true; 
 	} 
@@ -260,7 +262,7 @@ class Minelayer extends ShipWeapon {
 	}
 	fire(info) {
 		if (super.fire()) {
-			new Mine(Ship.list[this.owner].convertToAbsolutePos(this.position), this.owner); 
+			new Mine(Ship.list[this.owner].convertToAbsolutePos(this.position), this.owner, physics.getAttackExplosive(Ship.list[this.owner].levels.explosive)); 
 		}
 	}
 }
@@ -274,7 +276,7 @@ class TorpedoLauncher extends ShipWeapon {
 		if (info.componentId === this.componentId) {
 		if (super.fire()) {
 			for (let i = (-Ship.list[this.owner].levels.torpmult + 1)/2; i < Ship.list[this.owner].levels.torpmult/2; i++) {
-				new Torpedo(Ship.list[this.owner].convertToAbsolutePos(this.position), mod(Ship.list[this.owner].bearing + info.relativeDirection + info.spread*i, 2 * Math.PI), this.owner); 
+				new Torpedo(Ship.list[this.owner].convertToAbsolutePos(this.position), mod(Ship.list[this.owner].bearing + info.relativeDirection + info.spread*i, 2 * Math.PI), this.owner, physics.getAttackExplosive(Ship.list[this.owner].levels.explosive)); 
 			}
 		}
 		}
@@ -295,7 +297,7 @@ class Gun extends ShipWeapon {
 					x: info.x + (Math.random()*diviation - diviation/2)*distance, 
 					y: info.y + (Math.random()*diviation - diviation/2)*distance
 				}; 
-				new Shell(Ship.list[this.owner].convertToAbsolutePos(this.position), this.owner, destination); 
+				new Shell(Ship.list[this.owner].convertToAbsolutePos(this.position), this.owner, destination, physics.getAttackCaliber(Ship.list[this.owner].levels.caliber)); 
 			}
 		}
 	}
@@ -314,7 +316,7 @@ class ShipComponent {// Coordinates are relative to the ship, shape coordinates 
 		this.shape = shape; //example: {type: 'polygon', vertices: [{x, y}, ...]} 
 		//type polygon is always convex, the vertices are listed in an anti-clockwise order 
 		this.modules = []; 
-		this.HP = 5; 
+		this.HP = 1; 
 		this.dominantModule = undefined; 
 		this.owner = owner; 
 		this.functional = true; 
@@ -360,14 +362,15 @@ class Ship extends Entity {
 		this.socket = socket; 
 		this.bearing = this.direction; 
 		this.turnCurv = 0; 
+		this.aimDirection = 0; 
 		this.levels = {
-			levelPoints: 10, 
+			levelPoints: 17, 
 			concealment: 0, 
 			detection: 0, 
 			armor: 0, 
 			size: 0, 
-			shelldmg: 0, 
-			explosivedmg: 0, 
+			caliber: 0, 
+			explosive: 0, 
 			gunmult: 1, 
 			torpmult: 1, 
 			ruddershift: 0, 
@@ -403,6 +406,18 @@ class Ship extends Entity {
 			armor: function() {
 				if (this.levels.armor < 4 && this.levels.levelPoints > 0) {
 					this.levels.armor += 1; 
+					this.levels.levelPoints -= 1; 
+				} 
+			}, 
+			caliber: function() {
+				if (this.levels.caliber < this.levels.size && this.levels.levelPoints > 0) {
+					this.levels.caliber += 1; 
+					this.levels.levelPoints -= 1; 
+				} 
+			}, 
+			explosive: function() {
+				if (this.levels.explosive < 4 && this.levels.levelPoints > 0) {
+					this.levels.explosive += 1; 
 					this.levels.levelPoints -= 1; 
 				} 
 			}
@@ -546,7 +561,9 @@ class Ship extends Entity {
 				position:Ship.list[name].position, 
 				bearing:Ship.list[name].bearing, 
 				components:Ship.list[name].components, 
-				size:Ship.list[name].size
+				size:Ship.list[name].size, 
+				levels:Ship.list[name].levels, 
+				aimDirection:Ship.list[name].aimDirection
 			}; 
 		} 
 		var detectedMineList = {}; 
@@ -699,6 +716,12 @@ io.sockets.on('connection', socket => {
 	socket.on('addModule', data => {
 		if (socket.name in Ship.list) {
 			Ship.list[socket.name].addModule(data.componentId, data.moduleName); 
+		}
+	}); 
+	
+	socket.on('aimDirection', data => {
+		if (socket.name in Ship.list) {
+			Ship.list[socket.name].aimDirection = data; 
 		}
 	}); 
 }); 
