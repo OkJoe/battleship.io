@@ -493,6 +493,11 @@ class Ship extends Entity {
 		if (newModule.onlyOnePerShip && this.modules[moduleType] !== undefined) {
 			return; 
 		}
+		for (let i = 0; i < this.components[componentId].modules.length; i++) {
+			if (this.components[componentId].modules[i].type === 'moduleType') {
+				return; 
+			}
+		}
 		if (newModule.isDominant) {
 			if (this.components[componentId].dominantModule !== undefined) {
 				return; 
